@@ -53,10 +53,13 @@ export async function POST(request: NextRequest) {
     if (!pdfBuffer || usedHtmlFallback) {
       const htmlFileName = `${user.id}/${quoteId}.html`
       
+      // Convert HTML string to Buffer
+      const htmlBuffer = Buffer.from(html, 'utf-8')
+      
       const { error: htmlUploadError } = await supabase.storage
         .from('quotes')
-        .upload(htmlFileName, html, {
-          contentType: 'text/html; charset=utf-8',
+        .upload(htmlFileName, htmlBuffer, {
+          contentType: 'text/html',
           upsert: true,
         })
 
