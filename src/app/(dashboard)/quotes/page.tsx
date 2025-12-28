@@ -17,6 +17,12 @@ import { toast } from 'sonner'
 import { FileText, Loader2, ExternalLink, Trash2, Calendar, Building2, User, FilePlus } from 'lucide-react'
 import Link from 'next/link'
 
+interface CompanyInfo {
+  id: string
+  title: string
+  multiplier: number
+}
+
 interface Quote {
   id: string
   quote_no: string | null
@@ -27,11 +33,7 @@ interface Quote {
   grand_total: number
   pdf_url: string | null
   created_at: string
-  company: {
-    id: string
-    title: string
-    multiplier: number
-  } | null
+  company: CompanyInfo | CompanyInfo[] | null
 }
 
 export default function QuotesPage() {
@@ -147,6 +149,13 @@ export default function QuotesPage() {
     )
   }
 
+  // Helper to get company from array or object
+  const getCompany = (company: CompanyInfo | CompanyInfo[] | null): CompanyInfo | null => {
+    if (!company) return null
+    if (Array.isArray(company)) return company[0] || null
+    return company
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -224,14 +233,17 @@ export default function QuotesPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {quote.company ? (
-                        <div className="space-y-1">
-                          <div className="text-white text-sm">{quote.company.title}</div>
-                          {getMultiplierBadge(quote.company.multiplier)}
-                        </div>
-                      ) : (
-                        <span className="text-slate-500">-</span>
-                      )}
+                      {(() => {
+                        const company = getCompany(quote.company)
+                        return company ? (
+                          <div className="space-y-1">
+                            <div className="text-white text-sm">{company.title}</div>
+                            {getMultiplierBadge(company.multiplier)}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )
+                      })()}
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1">
