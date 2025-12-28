@@ -35,7 +35,6 @@ export async function POST(request: NextRequest) {
       
       const browser = await puppeteer.launch({
         args: isLocal ? [] : chromium.args,
-        defaultViewport: chromium.defaultViewport,
         executablePath: isLocal 
           ? process.platform === 'win32'
             ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
