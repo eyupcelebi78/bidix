@@ -36,6 +36,16 @@ RUN npx playwright install chromium --with-deps
 # Copy application files
 COPY . .
 
+# Build arguments for Next.js
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG NODE_ENV=production
+
+# Set environment variables for build
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NODE_ENV=$NODE_ENV
+
 # Build Next.js app
 RUN npm run build
 
