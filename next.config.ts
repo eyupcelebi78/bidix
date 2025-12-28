@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  serverExternalPackages: ['playwright'],
+  serverExternalPackages: ['@sparticuz/chromium'],
 };
 
 export default nextConfig;
