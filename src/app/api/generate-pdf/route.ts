@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateTemplate, QuoteData } from '@/lib/pdf-templates'
-import puppeteer from 'puppeteer-core'
-import chromium from '@sparticuz/chromium'
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,27 +24,18 @@ export async function POST(request: NextRequest) {
     const templateKey = body.templateKey || 'modern'
     const html = generateTemplate(templateKey, quoteData)
 
-    // Generate PDF using Puppeteer (works on Vercel)
+    // Try to generate PDF using Playwright (only works locally, not on Vercel)
     let pdfBuffer: Buffer | null = null
+    let usedHtmlFallback = false
     
     try {
-      // Determine if we're running locally or on Vercel
-      const isLocal = process.env.NODE_ENV === 'development' || !process.env.VERCEL
-      
-      const browser = await puppeteer.launch({
-        args: isLocal ? [] : chromium.args,
-        executablePath: isLocal 
-          ? process.platform === 'win32'
-            ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-            : process.platform === 'darwin'
-            ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-            : '/usr/bin/google-chrome'
-          : await chromium.executablePath(),
-        headless: chromium.headless,
+      const { chromium } = await import('playwright')
+      const browser = await chromium.launch({
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
       })
       
       const page = await browser.newPage()
-      await page.setContent(html, { waitUntil: 'networkidle0' })
+      await page.setContent(html, { waitUntil: 'networkidle' })
       
       pdfBuffer = await page.pdf({
         format: 'A4',
@@ -56,10 +45,15 @@ export async function POST(request: NextRequest) {
 
       await browser.close()
     } catch (browserError) {
-      console.error('PDF generation error:', browserError)
-      
-      // Fallback to HTML if PDF generation fails
+      console.error('Playwright error (expected on Vercel):', browserError)
+      usedHtmlFallback = true
+    }
+
+    // If PDF generation failed, upload HTML instead
+    if (!pdfBuffer || usedHtmlFallback) {
       const htmlFileName = `${user.id}/${quoteId}.html`
+      
+      // Convert HTML string to Buffer with UTF-8 encoding
       const htmlBuffer = Buffer.from(html, 'utf-8')
       
       const { error: htmlUploadError } = await supabase.storage
