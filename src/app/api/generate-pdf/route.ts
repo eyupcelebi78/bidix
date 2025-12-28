@@ -24,87 +24,44 @@ export async function POST(request: NextRequest) {
     const templateKey = body.templateKey || 'modern'
     const html = generateTemplate(templateKey, quoteData)
 
-    // Generate PDF using PDFShift API (works on Vercel, 250 free PDFs/month)
-    let pdfBuffer: Buffer | null = null
+    // Generate PDF using Playwright
+    const { chromium } = await import('playwright')
+    const browser = await chromium.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    })
     
-    const pdfShiftApiKey = process.env.PDFSHIFT_API_KEY
+    const page = await browser.newPage()
+    await page.setContent(html, { waitUntil: 'networkidle' })
     
-    if (pdfShiftApiKey && pdfShiftApiKey !== 'demo') {
-      try {
-        const response = await fetch('https://api.pdfshift.io/v3/convert/pdf', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Basic ${Buffer.from(`api:${pdfShiftApiKey}`).toString('base64')}`
-          },
-          body: JSON.stringify({
-            source: html,
-            format: 'A4',
-            margin: '0mm',
-            print_background: true,
-          })
-        })
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+    })
 
-        if (response.ok) {
-          const arrayBuffer = await response.arrayBuffer()
-          pdfBuffer = Buffer.from(arrayBuffer)
-        } else {
-          console.error('PDFShift error:', await response.text())
-        }
-      } catch (pdfError) {
-        console.error('PDF generation error:', pdfError)
-      }
-    }
+    await browser.close()
 
-    // If PDF was generated successfully, upload it
-    if (pdfBuffer) {
-      const fileName = `${user.id}/${quoteId}.pdf`
-      
-      const { error: uploadError } = await supabase.storage
-        .from('quotes')
-        .upload(fileName, pdfBuffer, {
-          contentType: 'application/pdf',
-          upsert: true,
-        })
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError)
-        return NextResponse.json({ error: 'PDF yüklenemedi' }, { status: 500 })
-      }
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('quotes')
-        .getPublicUrl(fileName)
-
-      return NextResponse.json({ pdfUrl: publicUrl })
-    }
-
-    // Fallback: Upload HTML for browser printing
-    const htmlFileName = `${user.id}/${quoteId}.html`
-    const htmlBuffer = Buffer.from(html, 'utf-8')
+    // Upload PDF to Supabase Storage
+    const fileName = `${user.id}/${quoteId}.pdf`
     
-    const { error: htmlUploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('quotes')
-      .upload(htmlFileName, htmlBuffer, {
-        contentType: 'text/html; charset=utf-8',
+      .upload(fileName, pdfBuffer, {
+        contentType: 'application/pdf',
         upsert: true,
       })
 
-    if (htmlUploadError) {
-      console.error('HTML upload error:', htmlUploadError)
-      return NextResponse.json({ error: 'Dosya yüklenemedi' }, { status: 500 })
+    if (uploadError) {
+      console.error('Upload error:', uploadError)
+      return NextResponse.json({ error: 'PDF yüklenemedi' }, { status: 500 })
     }
 
-    const { data: { publicUrl: htmlPublicUrl } } = supabase.storage
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
       .from('quotes')
-      .getPublicUrl(htmlFileName)
+      .getPublicUrl(fileName)
 
-    return NextResponse.json({ 
-      pdfUrl: htmlPublicUrl,
-      isHtml: true,
-      message: 'HTML önizleme oluşturuldu (yazdırmak için Ctrl+P kullanın)'
-    })
+    return NextResponse.json({ pdfUrl: publicUrl })
   } catch (error) {
     console.error('PDF generation error:', error)
     return NextResponse.json(
