@@ -265,7 +265,8 @@ export default function NewQuotePage() {
         throw new Error(errorData.error || 'PDF oluşturulamadı')
       }
 
-      const { pdfUrl } = await response.json()
+      const result = await response.json()
+      const { pdfUrl, isHtml, message } = result
 
       // Update quote with PDF URL
       await supabase
@@ -273,9 +274,15 @@ export default function NewQuotePage() {
         .update({ pdf_url: pdfUrl })
         .eq('id', quote.id)
 
-      toast.success(`${company.title} için teklif oluşturuldu!`)
+      if (isHtml) {
+        toast.success(`${company.title} için teklif oluşturuldu! (HTML önizleme - PDF için yazdırın)`, {
+          duration: 5000,
+        })
+      } else {
+        toast.success(`${company.title} için teklif oluşturuldu!`)
+      }
       
-      // Open PDF in new tab
+      // Open in new tab
       window.open(pdfUrl, '_blank')
 
     } catch (error) {

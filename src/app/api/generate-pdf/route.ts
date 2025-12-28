@@ -21,11 +21,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate HTML
-    const templateKey = quoteData.quote.id ? 'modern' : 'modern' // Default to modern
-    const html = generateTemplate(body.templateKey || templateKey, quoteData)
+    const templateKey = body.templateKey || 'modern'
+    const html = generateTemplate(templateKey, quoteData)
 
-    // Try to generate PDF using Playwright
+    // Try to generate PDF using Playwright (only works locally, not on Vercel)
     let pdfBuffer: Buffer | null = null
+    let usedHtmlFallback = false
     
     try {
       const { chromium } = await import('playwright')
@@ -44,21 +45,38 @@ export async function POST(request: NextRequest) {
 
       await browser.close()
     } catch (browserError) {
-      console.error('Playwright error:', browserError)
-      // Fallback: Return HTML preview URL
-      const htmlBase64 = Buffer.from(html).toString('base64')
+      console.error('Playwright error (expected on Vercel):', browserError)
+      usedHtmlFallback = true
+    }
+
+    // If PDF generation failed, upload HTML instead
+    if (!pdfBuffer || usedHtmlFallback) {
+      const htmlFileName = `${user.id}/${quoteId}.html`
+      
+      const { error: htmlUploadError } = await supabase.storage
+        .from('quotes')
+        .upload(htmlFileName, html, {
+          contentType: 'text/html; charset=utf-8',
+          upsert: true,
+        })
+
+      if (htmlUploadError) {
+        console.error('HTML upload error:', htmlUploadError)
+        return NextResponse.json({ error: 'Dosya yüklenemedi' }, { status: 500 })
+      }
+
+      const { data: { publicUrl: htmlPublicUrl } } = supabase.storage
+        .from('quotes')
+        .getPublicUrl(htmlFileName)
+
       return NextResponse.json({ 
-        pdfUrl: `data:text/html;base64,${htmlBase64}`,
+        pdfUrl: htmlPublicUrl,
         isHtml: true,
-        message: 'PDF oluşturulamadı, HTML önizleme döndürülüyor'
+        message: 'HTML önizleme oluşturuldu (yazdırmak için Ctrl+P kullanın)'
       })
     }
 
-    if (!pdfBuffer) {
-      return NextResponse.json({ error: 'PDF buffer oluşturulamadı' }, { status: 500 })
-    }
-
-    // Upload PDF to Supabase Storage - use authenticated user's ID for the path
+    // Upload PDF to Supabase Storage
     const fileName = `${user.id}/${quoteId}.pdf`
     
     const { error: uploadError } = await supabase.storage
@@ -70,12 +88,7 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       console.error('Upload error:', uploadError)
-      // Return PDF as base64 if upload fails
-      const pdfBase64 = pdfBuffer.toString('base64')
-      return NextResponse.json({ 
-        pdfUrl: `data:application/pdf;base64,${pdfBase64}`,
-        isBase64: true
-      })
+      return NextResponse.json({ error: 'PDF yüklenemedi' }, { status: 500 })
     }
 
     // Get public URL
