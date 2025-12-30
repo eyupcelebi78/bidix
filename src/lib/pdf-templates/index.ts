@@ -46,21 +46,21 @@ export interface QuoteData {
   }>
 }
 
-export function generateTemplate(templateKey: string, data: QuoteData): string {
+export function generateTemplate(templateKey: string, data: QuoteData, isDemo: boolean = false): string {
   switch (templateKey) {
     case 'classic':
-      return generateClassicTemplate(data)
+      return generateClassicTemplate(data, isDemo)
     case 'minimal':
-      return generateMinimalTemplate(data)
+      return generateMinimalTemplate(data, isDemo)
     case 'corporate':
-      return generateCorporateTemplate(data)
+      return generateCorporateTemplate(data, isDemo)
     case 'elegant':
-      return generateElegantTemplate(data)
+      return generateElegantTemplate(data, isDemo)
     case 'bold':
-      return generateBoldTemplate(data)
+      return generateBoldTemplate(data, isDemo)
     case 'modern':
     default:
-      return generateModernTemplate(data)
+      return generateModernTemplate(data, isDemo)
   }
 }
 

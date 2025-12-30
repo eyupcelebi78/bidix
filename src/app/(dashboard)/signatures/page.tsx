@@ -326,9 +326,12 @@ export default function SignaturesPage() {
                         {linkedCompanies.map(company => (
                           <Badge 
                             key={company.id} 
-                            className="bg-emerald-500/20 text-emerald-400 text-xs"
+                            className="bg-emerald-500/20 text-emerald-400 text-xs max-w-full"
+                            title={company.title}
                           >
-                            {company.title}
+                            <span className="truncate block max-w-[200px]">
+                              {company.title}
+                            </span>
                           </Badge>
                         ))}
                       </div>
@@ -343,7 +346,7 @@ export default function SignaturesPage() {
 
       {/* Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="border-slate-700 bg-slate-800 text-white">
+        <DialogContent className="border-slate-700 bg-slate-800 text-white max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {editingProfile ? 'Kaşe Düzenle' : 'Yeni Kaşe Ekle'}
@@ -431,15 +434,17 @@ export default function SignaturesPage() {
                           type="checkbox"
                           checked={selectedCompanyIds.includes(company.id)}
                           onChange={() => toggleCompanySelection(company.id)}
-                          className="h-4 w-4 rounded border-slate-500 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
+                          className="h-4 w-4 flex-shrink-0 rounded border-slate-500 bg-slate-700 text-emerald-500 focus:ring-emerald-500"
                         />
-                        <div className="flex-1">
-                          <span className="text-sm text-white">{company.title}</span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm text-white block truncate" title={company.title}>
+                            {company.title}
+                          </span>
                           {company.signature_profile_id && company.signature_profile_id !== editingProfile?.id && (
-                            <span className="ml-2 text-xs text-amber-400">(Başka profil atanmış)</span>
+                            <span className="text-xs text-amber-400 block">(Başka profil atanmış)</span>
                           )}
                         </div>
-                        <span className={`text-xs px-2 py-0.5 rounded ${
+                        <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${
                           company.multiplier === 1 
                             ? 'bg-slate-600 text-slate-300' 
                             : 'bg-purple-500/20 text-purple-400'

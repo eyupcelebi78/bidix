@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,11 +16,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Bidix - Teklif Yönetimi",
+    default: "Bidix - Tek Tıkla 3 Farklı Teklif Oluştur",
     template: "%s | Bidix",
   },
-  description: "Profesyonel teklif oluşturma ve yönetim platformu",
-  keywords: ["teklif", "fiyat teklifi", "pdf", "fatura", "bidix"],
+  description: "Ücretsiz deneyin! Aynı ürünlerden otomatik olarak 3 farklı şablonda ve fiyatta profesyonel PDF teklifler üretin. Kayıt gerektirmez.",
+  keywords: ["teklif", "fiyat teklifi", "pdf", "fatura", "bidix", "teklif hazırlama", "online teklif"],
 };
 
 export default function RootLayout({
@@ -27,11 +29,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="tr" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );
