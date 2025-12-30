@@ -125,8 +125,8 @@ export async function POST(request: NextRequest) {
         items: calculatedItems,
       }
 
-      // Generate HTML with demo watermark
-      const html = generateTemplate(config.template, quoteData, true)
+      // Generate HTML
+      const html = generateTemplate(config.template, quoteData)
 
       // Generate PDF
       let pdfBuffer: Buffer
