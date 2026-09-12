@@ -464,10 +464,7 @@ export function generateModernTemplate(data: QuoteData): string {
           ${signature.signature_image_url ? `<img src="${signature.signature_image_url}" alt="İmza" class="signature-img" />` : ''}
           ${signature.stamp_image_url ? `<img src="${signature.stamp_image_url}" alt="Kaşe" class="stamp-img" />` : ''}
         </div>
-        <div class="signature-line">
-          <div class="signer-name">${signature.signer_name}</div>
-          <div class="signer-title">${signature.signer_title}</div>
-        </div>
+        ${''}
       </div>
     </div>
     ` : ''}

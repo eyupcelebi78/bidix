@@ -22,9 +22,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Plus, Pencil, Trash2, Building2, Loader2, Upload } from 'lucide-react'
+import { Plus, Pencil, Trash2, Building2, Loader2, Upload, Lock, Check } from 'lucide-react'
 import Image from 'next/image'
+import { BUILTIN_TEMPLATES, BuiltinTemplate, getTemplateName } from '@/lib/templates'
 
 type Company = Tables<'companies'>
 type SignatureProfile = Tables<'signature_profiles'>
@@ -55,8 +57,17 @@ export default function CompaniesPage() {
   const [logoUrl, setLogoUrl] = useState('')
   const [signatureProfileId, setSignatureProfileId] = useState('')
   const [multiplier, setMultiplier] = useState('1.00')
+  const [templateKey, setTemplateKey] = useState('form')
 
   const supabase = createClient()
+
+  const handleSelectTemplate = (t: BuiltinTemplate) => {
+    if (t.premium) {
+      toast.info('Bu şablon Premium üyelere özel. Yükseltmek için üye olun.')
+      return
+    }
+    setTemplateKey(t.key)
+  }
 
   const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -92,6 +103,7 @@ export default function CompaniesPage() {
     setLogoUrl('')
     setSignatureProfileId('')
     setMultiplier('1.00')
+    setTemplateKey('form')
     setEditingCompany(null)
   }
 
@@ -112,6 +124,7 @@ export default function CompaniesPage() {
     setLogoUrl(company.logo_url || '')
     setSignatureProfileId(company.signature_profile_id || '')
     setMultiplier(company.multiplier.toString())
+    setTemplateKey(company.default_template_key || 'form')
     setDialogOpen(true)
   }
 
@@ -159,6 +172,18 @@ export default function CompaniesPage() {
       return
     }
 
+    if (!title.trim()) {
+      toast.error('Firma ünvanı zorunlu')
+      setSaving(false)
+      return
+    }
+
+    if (!signatureProfileId) {
+      toast.error('Firma için bir kaşe seçin')
+      setSaving(false)
+      return
+    }
+
     const companyData = {
       title,
       address: address || null,
@@ -170,6 +195,7 @@ export default function CompaniesPage() {
       logo_url: logoUrl || null,
       signature_profile_id: signatureProfileId || null,
       multiplier: parseFloat(multiplier),
+      default_template_key: templateKey,
       user_id: user.id,
     }
 
@@ -272,13 +298,18 @@ export default function CompaniesPage() {
                   )}
                   <div>
                     <CardTitle className="text-lg text-white">{company.title}</CardTitle>
-                    <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full ${
-                      company.multiplier === 1 
-                        ? 'bg-slate-600 text-slate-300' 
-                        : 'bg-emerald-500/20 text-emerald-400'
-                    }`}>
-                      {getMultiplierLabel(company.multiplier)}
-                    </span>
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <span className={`inline-block text-xs px-2 py-0.5 rounded-full ${
+                        company.multiplier === 1
+                          ? 'bg-slate-600 text-slate-300'
+                          : 'bg-emerald-500/20 text-emerald-400'
+                      }`}>
+                        {getMultiplierLabel(company.multiplier)}
+                      </span>
+                      <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">
+                        🎨 {getTemplateName(company.default_template_key || 'form')}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-1">
@@ -309,7 +340,7 @@ export default function CompaniesPage() {
                 )}
                 {company.signature_profile_id && (
                   <p className="flex items-center gap-1 text-emerald-400">
-                    ✍️ {signatureProfiles.find(sp => sp.id === company.signature_profile_id)?.signer_name || 'İmza Atanmış'}
+                    Kaşe atanmış
                   </p>
                 )}
               </CardContent>
@@ -356,6 +387,10 @@ export default function CompaniesPage() {
                   </label>
                 </div>
               </div>
+
+              <p className="text-xs text-slate-500">
+                Zorunlu alanlar: firma ünvanı ve kaşe. Diğer bilgiler girilirse teklif formunda görünür; boş bırakılırsa o kısımlar boş kalır.
+              </p>
 
               <div className="space-y-2">
                 <Label htmlFor="title">Firma Ünvanı *</Label>
@@ -449,19 +484,67 @@ export default function CompaniesPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>İmza Profili</Label>
-                  <Select value={signatureProfileId} onValueChange={setSignatureProfileId}>
-                    <SelectTrigger className="border-slate-600 bg-slate-700 text-white">
-                      <SelectValue placeholder="Seçiniz" />
-                    </SelectTrigger>
-                    <SelectContent className="border-slate-600 bg-slate-700">
-                      {signatureProfiles.map((sp) => (
-                        <SelectItem key={sp.id} value={sp.id} className="text-white hover:bg-slate-600">
-                          {sp.signer_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Kaşe *</Label>
+                  {signatureProfiles.length === 0 ? (
+                    <p className="text-sm text-amber-400">
+                      Önce Kaşe sayfasından bir kaşe ekleyin. Firma kaydı için kaşe zorunludur.
+                    </p>
+                  ) : (
+                    <Select value={signatureProfileId} onValueChange={setSignatureProfileId} required>
+                      <SelectTrigger className="border-slate-600 bg-slate-700 text-white">
+                        <SelectValue placeholder="Kaşe seçin" />
+                      </SelectTrigger>
+                      <SelectContent className="border-slate-600 bg-slate-700">
+                        {signatureProfiles.map((sp) => (
+                          <SelectItem key={sp.id} value={sp.id} className="text-white hover:bg-slate-600">
+                            {companies.find((c) => c.signature_profile_id === sp.id)?.title || 'Kaşe'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </div>
+
+              {/* Teklif Şablonu */}
+              <div className="space-y-2">
+                <Label>Teklif Şablonu</Label>
+                <p className="text-xs text-slate-500">
+                  3 şablon ücretsiz. Premium tasarımlar için üyelik gerekir.
+                </p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {BUILTIN_TEMPLATES.map((t) => {
+                    const isSelected = templateKey === t.key
+                    return (
+                      <button
+                        key={t.key}
+                        type="button"
+                        onClick={() => handleSelectTemplate(t)}
+                        aria-pressed={isSelected}
+                        className={`relative rounded-lg border p-3 text-left transition-colors ${
+                          isSelected
+                            ? 'border-emerald-500 ring-1 ring-emerald-500 bg-slate-700/60'
+                            : 'border-slate-600 bg-slate-700/30 hover:bg-slate-700/60'
+                        } ${t.premium ? 'cursor-not-allowed opacity-80' : ''}`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-sm font-medium text-white">{t.name}</span>
+                          {isSelected && !t.premium && (
+                            <Check className="h-4 w-4 text-emerald-400" />
+                          )}
+                          {t.premium && <Lock className="h-4 w-4 text-yellow-400" />}
+                        </div>
+                        <p className="mt-1 line-clamp-1 text-xs text-slate-400">{t.description}</p>
+                        <div className="mt-2">
+                          {t.premium ? (
+                            <Badge className="bg-yellow-500/20 text-yellow-400">Premium</Badge>
+                          ) : (
+                            <Badge className="bg-emerald-500/20 text-emerald-400">Ücretsiz</Badge>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             </div>

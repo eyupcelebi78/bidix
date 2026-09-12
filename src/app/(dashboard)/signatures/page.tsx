@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Tables } from '@/lib/database.types'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -32,8 +31,6 @@ export default function SignaturesPage() {
   const [uploadingStamp, setUploadingStamp] = useState(false)
 
   // Form state
-  const [signerName, setSignerName] = useState('')
-  const [signerTitle, setSignerTitle] = useState('')
   const [stampImageUrl, setStampImageUrl] = useState('')
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([])
 
@@ -63,8 +60,6 @@ export default function SignaturesPage() {
   }, [fetchData])
 
   const resetForm = () => {
-    setSignerName('')
-    setSignerTitle('')
     setStampImageUrl('')
     setSelectedCompanyIds([])
     setEditingProfile(null)
@@ -82,8 +77,6 @@ export default function SignaturesPage() {
 
   const openEditDialog = (profile: SignatureProfile) => {
     setEditingProfile(profile)
-    setSignerName(profile.signer_name)
-    setSignerTitle(profile.signer_title)
     setStampImageUrl(profile.stamp_image_url || '')
     // Bu profile bağlı firmaları seç
     const linkedCompanyIds = companies
@@ -137,11 +130,17 @@ export default function SignaturesPage() {
       return
     }
 
+    if (!stampImageUrl) {
+      toast.error('Lütfen bir kaşe görseli yükleyin')
+      setSaving(false)
+      return
+    }
+
     const profileData = {
-      signer_name: signerName,
-      signer_title: signerTitle,
+      signer_name: 'Kaşe',
+      signer_title: '',
       signature_image_url: null,
-      stamp_image_url: stampImageUrl || null,
+      stamp_image_url: stampImageUrl,
       user_id: user.id,
     }
 
@@ -272,8 +271,14 @@ export default function SignaturesPage() {
               <Card key={profile.id} className="border-slate-700 bg-slate-800/50">
                 <CardHeader className="flex flex-row items-start justify-between">
                   <div>
-                    <CardTitle className="text-lg text-white">{profile.signer_name}</CardTitle>
-                    <p className="text-sm text-slate-400">{profile.signer_title}</p>
+                    <CardTitle className="text-lg text-white">
+                      {linkedCompanies[0]?.title || 'Kaşe'}
+                    </CardTitle>
+                    <p className="text-sm text-slate-400">
+                      {linkedCompanies.length > 1
+                        ? `${linkedCompanies.length} firmaya atanmış`
+                        : 'Teklif formuna basılır'}
+                    </p>
                   </div>
                   <div className="flex gap-1">
                     <Button
@@ -354,29 +359,6 @@ export default function SignaturesPage() {
           </DialogHeader>
           <form onSubmit={handleSubmit}>
             <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="signerName">İmzalayan Adı *</Label>
-                <Input
-                  id="signerName"
-                  value={signerName}
-                  onChange={(e) => setSignerName(e.target.value)}
-                  required
-                  placeholder="Örn: Ahmet Yılmaz"
-                  className="border-slate-600 bg-slate-700 text-white"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="signerTitle">Ünvanı *</Label>
-                <Input
-                  id="signerTitle"
-                  value={signerTitle}
-                  onChange={(e) => setSignerTitle(e.target.value)}
-                  required
-                  placeholder="Örn: Genel Müdür"
-                  className="border-slate-600 bg-slate-700 text-white"
-                />
-              </div>
-
               {/* Stamp Upload */}
               <div className="space-y-2">
                 <Label>Kaşe Görseli *</Label>

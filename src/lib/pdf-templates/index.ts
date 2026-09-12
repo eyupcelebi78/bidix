@@ -4,6 +4,7 @@ import { generateMinimalTemplate } from './minimal'
 import { generateCorporateTemplate } from './corporate'
 import { generateElegantTemplate } from './elegant'
 import { generateBoldTemplate } from './bold'
+import { generateFormTemplate } from './form'
 
 export interface QuoteData {
   quote: {
@@ -46,8 +47,33 @@ export interface QuoteData {
   }>
 }
 
-export function generateTemplate(templateKey: string, data: QuoteData): string {
+function resolveAssetUrl(url: string | null, origin?: string): string | null {
+  if (!url) return null
+  if (/^(https?:|data:)/i.test(url)) return url
+  const base = origin || (typeof window !== 'undefined' ? window.location.origin : '')
+  if (!base) return url
+  return `${base}${url.startsWith('/') ? url : `/${url}`}`
+}
+
+export function generateTemplate(templateKey: string, data: QuoteData, origin?: string): string {
+  const resolved: QuoteData = {
+    ...data,
+    company: {
+      ...data.company,
+      logo_url: resolveAssetUrl(data.company.logo_url, origin),
+    },
+    signature: data.signature
+      ? {
+          ...data.signature,
+          signature_image_url: resolveAssetUrl(data.signature.signature_image_url, origin),
+          stamp_image_url: resolveAssetUrl(data.signature.stamp_image_url, origin),
+        }
+      : null,
+  }
+  data = resolved
   switch (templateKey) {
+    case 'form':
+      return generateFormTemplate(data)
     case 'classic':
       return generateClassicTemplate(data)
     case 'minimal':

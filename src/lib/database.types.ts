@@ -14,6 +14,7 @@ export type Database = {
           address: string | null
           created_at: string | null
           default_template_id: string | null
+          default_template_key: string | null
           email: string | null
           iban: string | null
           id: string
@@ -30,6 +31,7 @@ export type Database = {
           address?: string | null
           created_at?: string | null
           default_template_id?: string | null
+          default_template_key?: string | null
           email?: string | null
           iban?: string | null
           id?: string
@@ -46,6 +48,7 @@ export type Database = {
           address?: string | null
           created_at?: string | null
           default_template_id?: string | null
+          default_template_key?: string | null
           email?: string | null
           iban?: string | null
           id?: string
@@ -105,6 +108,30 @@ export type Database = {
           unit_price?: number
           user_id?: string
           vat_rate?: number
+        }
+        Relationships: []
+      }
+      customers: {
+        Row: {
+          created_at: string | null
+          id: string
+          name: string
+          tax_no: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          name: string
+          tax_no: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          name?: string
+          tax_no?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -213,6 +240,7 @@ export type Database = {
           created_at: string | null
           currency: string
           customer_company: string | null
+          customer_id: string | null
           customer_name: string | null
           grand_total: number
           id: string
@@ -228,6 +256,7 @@ export type Database = {
           created_at?: string | null
           currency?: string
           customer_company?: string | null
+          customer_id?: string | null
           customer_name?: string | null
           grand_total?: number
           id?: string
@@ -243,6 +272,7 @@ export type Database = {
           created_at?: string | null
           currency?: string
           customer_company?: string | null
+          customer_id?: string | null
           customer_name?: string | null
           grand_total?: number
           id?: string
@@ -259,6 +289,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quotes_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
             referencedColumns: ["id"]
           },
           {

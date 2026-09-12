@@ -23,11 +23,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { Plus, Trash2, Loader2, FileDown, Building2 } from 'lucide-react'
+import { Plus, Trash2, Loader2, FileDown, Building2, Search, X, Layers, History } from 'lucide-react'
 
 type Product = Tables<'products'>
 type Company = Tables<'companies'>
-type QuoteTemplate = Tables<'quote_templates'>
+type Customer = Tables<'customers'>
+
+function normalizeTaxNo(value: string): string {
+  return value.replace(/\s+/g, '').replace(/[^0-9A-Za-z]/g, '').toUpperCase()
+}
 
 interface QuoteItem {
   product_id: string
@@ -35,19 +39,29 @@ interface QuoteItem {
   quantity: number
 }
 
+interface LastPrice {
+  unitPrice: number
+  quotedAt: string
+  companyTitle: string | null
+}
+
 export default function NewQuotePage() {
   const [products, setProducts] = useState<Product[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
-  const [templates, setTemplates] = useState<QuoteTemplate[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState<string | null>(null)
 
   // Form state
   const [customerName, setCustomerName] = useState('')
-  const [customerCompany, setCustomerCompany] = useState('')
-  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [customerTaxNo, setCustomerTaxNo] = useState('')
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const [customerQuery, setCustomerQuery] = useState('')
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const [items, setItems] = useState<QuoteItem[]>([])
   const [selectedProductId, setSelectedProductId] = useState('')
+  const [lastPrices, setLastPrices] = useState<Record<string, LastPrice>>({})
+  const [loadingLastPrices, setLoadingLastPrices] = useState(false)
 
   const supabase = createClient()
 
@@ -55,20 +69,15 @@ export default function NewQuotePage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [productsRes, companiesRes, templatesRes] = await Promise.all([
+    const [productsRes, companiesRes, customersRes] = await Promise.all([
       supabase.from('products').select('*').order('name'),
       supabase.from('companies').select('*').order('multiplier'),
-      supabase.from('quote_templates').select('*').order('name'),
+      supabase.from('customers').select('*').order('name'),
     ])
 
     setProducts(productsRes.data || [])
     setCompanies(companiesRes.data || [])
-    setTemplates(templatesRes.data || [])
-
-    // Set default template if available
-    if (templatesRes.data && templatesRes.data.length > 0) {
-      setSelectedTemplateId(templatesRes.data[0].id)
-    }
+    setCustomers(customersRes.data || [])
 
     setLoading(false)
   }, [supabase])
@@ -76,6 +85,93 @@ export default function NewQuotePage() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  const activeCustomerId =
+    selectedCustomer?.id ||
+    customers.find((c) => c.tax_no === normalizeTaxNo(customerTaxNo))?.id ||
+    null
+
+  const fetchLastPrices = useCallback(async (customerId: string) => {
+    setLoadingLastPrices(true)
+    const { data: prevQuotes, error } = await supabase
+      .from('quotes')
+      .select('id, created_at, company:companies(title, multiplier)')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false })
+      .limit(200)
+
+    const baseQuotes = (prevQuotes || []).filter((q) => {
+      const company = Array.isArray(q.company) ? q.company[0] : q.company
+      return Math.abs(Number(company?.multiplier ?? 1) - 1) < 0.001
+    })
+
+    if (error || baseQuotes.length === 0) {
+      setLastPrices({})
+      setLoadingLastPrices(false)
+      return
+    }
+
+    // En son teklif turu: son 1x teklifin zamanına yakın üretilen diğer 1x teklifler
+    const latestMs = new Date(baseQuotes[0].created_at || 0).getTime()
+    const BATCH_MS = 10 * 60 * 1000
+    const latestBatch = baseQuotes.filter((q) => {
+      const t = new Date(q.created_at || 0).getTime()
+      return Math.abs(latestMs - t) <= BATCH_MS
+    })
+
+    const quoteIds = latestBatch.map((q) => q.id)
+    const { data: prevItems } = await supabase
+      .from('quote_items')
+      .select('quote_id, product_id, product_name, unit_price_effective')
+      .in('quote_id', quoteIds)
+
+    const quoteMeta = new Map(
+      latestBatch.map((q) => {
+        const company = Array.isArray(q.company) ? q.company[0] : q.company
+        return [q.id, { created_at: q.created_at, title: company?.title || null }]
+      }),
+    )
+
+    const next: Record<string, LastPrice> = {}
+    const takeLowest = (key: string, info: LastPrice) => {
+      const current = next[key]
+      if (!current || info.unitPrice < current.unitPrice) next[key] = info
+    }
+
+    for (const row of prevItems || []) {
+      const meta = quoteMeta.get(row.quote_id)
+      const info: LastPrice = {
+        unitPrice: Number(row.unit_price_effective),
+        quotedAt: meta?.created_at || '',
+        companyTitle: meta?.title || null,
+      }
+      if (row.product_id) takeLowest(row.product_id, info)
+      takeLowest(`name:${row.product_name.trim().toLowerCase()}`, info)
+    }
+
+    setLastPrices(next)
+    setLoadingLastPrices(false)
+  }, [supabase])
+
+  useEffect(() => {
+    if (!activeCustomerId) {
+      setLastPrices({})
+      return
+    }
+    fetchLastPrices(activeCustomerId)
+  }, [activeCustomerId, fetchLastPrices])
+
+  const getLastPrice = (product: Product): LastPrice | undefined => {
+    return lastPrices[product.id] || lastPrices[`name:${product.name.trim().toLowerCase()}`]
+  }
+
+  const formatMoney = (n: number) =>
+    n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  const formatShortDate = (iso: string) => {
+    if (!iso) return ''
+    return new Date(iso).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })
+  }
 
   const addItem = () => {
     if (!selectedProductId) {
@@ -131,6 +227,194 @@ export default function NewQuotePage() {
     }
   }
 
+  const pickCustomer = (c: Customer) => {
+    setSelectedCustomer(c)
+    setCustomerName(c.name)
+    setCustomerTaxNo(c.tax_no)
+    setCustomerQuery(c.name)
+    setShowSuggestions(false)
+  }
+
+  const clearCustomer = () => {
+    setSelectedCustomer(null)
+    setCustomerName('')
+    setCustomerTaxNo('')
+    setCustomerQuery('')
+    setShowSuggestions(false)
+  }
+
+  const matchingCustomers = customers.filter((c) => {
+    const q = customerQuery.trim().toLowerCase()
+    if (!q) return false
+    return (
+      c.name.toLowerCase().includes(q) ||
+      c.tax_no.toLowerCase().includes(normalizeTaxNo(customerQuery))
+    )
+  }).slice(0, 6)
+
+  const resolveCustomer = async (userId: string): Promise<Customer> => {
+    if (selectedCustomer) return selectedCustomer
+
+    const name = customerName.trim() || customerQuery.trim()
+    const taxNo = normalizeTaxNo(customerTaxNo)
+
+    if (!name) throw new Error('Müşteri adı gerekli')
+    if (!taxNo) throw new Error('İlk teklif için müşteri vergi numarası gerekli')
+
+    const existing = customers.find((c) => c.tax_no === taxNo)
+    if (existing) {
+      if (existing.name !== name) {
+        await supabase.from('customers').update({ name }).eq('id', existing.id)
+        return { ...existing, name }
+      }
+      return existing
+    }
+
+    const { data, error } = await supabase
+      .from('customers')
+      .insert({ user_id: userId, name, tax_no: taxNo })
+      .select()
+      .single()
+
+    if (error) {
+      if (error.code === '23505') throw new Error('Bu vergi numarası zaten kayıtlı')
+      throw error
+    }
+
+    setCustomers((prev) => [...prev, data])
+    return data
+  }
+
+  const generateQuoteForCompany = async (
+    userId: string,
+    customer: Customer,
+    company: Company,
+  ): Promise<string | null> => {
+    const totals = calculateTotals(company.multiplier)
+
+    const { data: quote, error: quoteError } = await supabase
+      .from('quotes')
+      .insert({
+        user_id: userId,
+        company_id: company.id,
+        template_id: null,
+        customer_id: customer.id,
+        customer_name: customer.name,
+        customer_company: customer.name,
+        subtotal: totals.subtotal,
+        vat_total: totals.vatTotal,
+        grand_total: totals.grandTotal,
+      })
+      .select()
+      .single()
+
+    if (quoteError) throw quoteError
+
+    const quoteItems = items.map((item, index) => {
+      const effectivePrice = item.product.unit_price * company.multiplier
+      const lineSubtotal = effectivePrice * item.quantity
+      const lineVat = lineSubtotal * (item.product.vat_rate / 100)
+      const lineTotal = lineSubtotal + lineVat
+
+      return {
+        quote_id: quote.id,
+        product_id: item.product.id,
+        product_name: item.product.name,
+        product_brand: item.product.brand,
+        product_unit: item.product.unit,
+        quantity: item.quantity,
+        unit_price_effective: effectivePrice,
+        vat_rate: item.product.vat_rate,
+        line_subtotal: lineSubtotal,
+        line_vat: lineVat,
+        line_total: lineTotal,
+        sort_order: index,
+      }
+    })
+
+    const { error: itemsError } = await supabase
+      .from('quote_items')
+      .insert(quoteItems)
+
+    if (itemsError) throw itemsError
+
+    let signatureProfile = null
+    if (company.signature_profile_id) {
+      const { data: sig } = await supabase
+        .from('signature_profiles')
+        .select('*')
+        .eq('id', company.signature_profile_id)
+        .single()
+      signatureProfile = sig
+    }
+
+    const pdfQuoteData = {
+      quote: {
+        id: quote.id,
+        quote_no: quote.quote_no,
+        customer_name: quote.customer_name,
+        customer_company: quote.customer_company,
+        currency: quote.currency,
+        subtotal: quote.subtotal,
+        vat_total: quote.vat_total,
+        grand_total: quote.grand_total,
+        created_at: quote.created_at,
+      },
+      company: {
+        title: company.title,
+        address: company.address,
+        tax_office: company.tax_office,
+        tax_no: company.tax_no,
+        phone: company.phone,
+        email: company.email,
+        iban: company.iban,
+        logo_url: company.logo_url,
+      },
+      signature: signatureProfile ? {
+        signer_name: signatureProfile.signer_name,
+        signer_title: signatureProfile.signer_title,
+        signature_image_url: signatureProfile.signature_image_url,
+        stamp_image_url: signatureProfile.stamp_image_url,
+      } : null,
+      items: quoteItems.map((item) => ({
+        product_name: item.product_name,
+        product_brand: item.product_brand,
+        product_unit: item.product_unit,
+        quantity: item.quantity,
+        unit_price_effective: item.unit_price_effective,
+        vat_rate: item.vat_rate,
+        line_subtotal: item.line_subtotal,
+        line_vat: item.line_vat,
+        line_total: item.line_total,
+      })),
+    }
+
+    const response = await fetch('/api/generate-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        quoteId: quote.id,
+        quoteData: pdfQuoteData,
+        templateKey: company.default_template_key || 'form',
+        userId,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || 'PDF oluşturulamadı')
+    }
+
+    const { pdfUrl } = await response.json()
+
+    await supabase
+      .from('quotes')
+      .update({ pdf_url: pdfUrl })
+      .eq('id', quote.id)
+
+    return pdfUrl || null
+  }
+
   const handleGenerateQuote = async (company: Company) => {
     if (items.length === 0) {
       toast.error('Lütfen en az bir ürün ekleyin')
@@ -143,148 +427,15 @@ export default function NewQuotePage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Oturum bulunamadı')
 
-      const totals = calculateTotals(company.multiplier)
+      const customer = await resolveCustomer(user.id)
+      setSelectedCustomer(customer)
+      setCustomerName(customer.name)
+      setCustomerTaxNo(customer.tax_no)
+      setCustomerQuery(customer.name)
 
-      // Create quote
-      const { data: quote, error: quoteError } = await supabase
-        .from('quotes')
-        .insert({
-          user_id: user.id,
-          company_id: company.id,
-          template_id: selectedTemplateId || null,
-          customer_name: customerName || null,
-          customer_company: customerCompany || null,
-          subtotal: totals.subtotal,
-          vat_total: totals.vatTotal,
-          grand_total: totals.grandTotal,
-        })
-        .select()
-        .single()
-
-      if (quoteError) throw quoteError
-
-      // Create quote items
-      const quoteItems = items.map((item, index) => {
-        const effectivePrice = item.product.unit_price * company.multiplier
-        const lineSubtotal = effectivePrice * item.quantity
-        const lineVat = lineSubtotal * (item.product.vat_rate / 100)
-        const lineTotal = lineSubtotal + lineVat
-
-        return {
-          quote_id: quote.id,
-          product_id: item.product.id,
-          product_name: item.product.name,
-          product_brand: item.product.brand,
-          product_unit: item.product.unit,
-          quantity: item.quantity,
-          unit_price_effective: effectivePrice,
-          vat_rate: item.product.vat_rate,
-          line_subtotal: lineSubtotal,
-          line_vat: lineVat,
-          line_total: lineTotal,
-          sort_order: index,
-        }
-      })
-
-      const { error: itemsError } = await supabase
-        .from('quote_items')
-        .insert(quoteItems)
-
-      if (itemsError) throw itemsError
-
-      // Get company signature profile if exists
-      let signatureProfile = null
-      if (company.signature_profile_id) {
-        const { data: sig } = await supabase
-          .from('signature_profiles')
-          .select('*')
-          .eq('id', company.signature_profile_id)
-          .single()
-        signatureProfile = sig
-      }
-
-      // Get template info
-      const selectedTemplate = templates.find(t => t.id === selectedTemplateId)
-
-      // Prepare quote data for PDF
-      const pdfQuoteData = {
-        quote: {
-          id: quote.id,
-          quote_no: quote.quote_no,
-          customer_name: quote.customer_name,
-          customer_company: quote.customer_company,
-          currency: quote.currency,
-          subtotal: quote.subtotal,
-          vat_total: quote.vat_total,
-          grand_total: quote.grand_total,
-          created_at: quote.created_at,
-        },
-        company: {
-          title: company.title,
-          address: company.address,
-          tax_office: company.tax_office,
-          tax_no: company.tax_no,
-          phone: company.phone,
-          email: company.email,
-          iban: company.iban,
-          logo_url: company.logo_url,
-        },
-        signature: signatureProfile ? {
-          signer_name: signatureProfile.signer_name,
-          signer_title: signatureProfile.signer_title,
-          signature_image_url: signatureProfile.signature_image_url,
-          stamp_image_url: signatureProfile.stamp_image_url,
-        } : null,
-        items: quoteItems.map(item => ({
-          product_name: item.product_name,
-          product_brand: item.product_brand,
-          product_unit: item.product_unit,
-          quantity: item.quantity,
-          unit_price_effective: item.unit_price_effective,
-          vat_rate: item.vat_rate,
-          line_subtotal: item.line_subtotal,
-          line_vat: item.line_vat,
-          line_total: item.line_total,
-        })),
-      }
-
-      // Generate PDF
-      const response = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          quoteId: quote.id, 
-          quoteData: pdfQuoteData,
-          templateKey: selectedTemplate?.base_template_key || 'modern',
-          userId: user.id,
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'PDF oluşturulamadı')
-      }
-
-      const result = await response.json()
-      const { pdfUrl, isHtml, message } = result
-
-      // Update quote with PDF URL
-      await supabase
-        .from('quotes')
-        .update({ pdf_url: pdfUrl })
-        .eq('id', quote.id)
-
-      if (isHtml) {
-        toast.success(`${company.title} için teklif oluşturuldu! (HTML önizleme - PDF için yazdırın)`, {
-          duration: 5000,
-        })
-      } else {
-        toast.success(`${company.title} için teklif oluşturuldu!`)
-      }
-      
-      // Open in new tab
-      window.open(pdfUrl, '_blank')
-
+      const pdfUrl = await generateQuoteForCompany(user.id, customer, company)
+      toast.success(`${company.title} için teklif oluşturuldu!`)
+      if (pdfUrl) window.open(pdfUrl, '_blank')
     } catch (error) {
       console.error('Quote generation error:', error)
       toast.error(error instanceof Error ? error.message : 'Teklif oluşturulamadı')
@@ -293,9 +444,46 @@ export default function NewQuotePage() {
     }
   }
 
-  const getCompanyLabel = (company: Company) => {
-    if (company.multiplier === 1) return company.title
-    return `${company.title} (+%${Math.round((company.multiplier - 1) * 100)})`
+  const handleGenerateAll = async () => {
+    if (items.length === 0) {
+      toast.error('Lütfen en az bir ürün ekleyin')
+      return
+    }
+    if (companies.length === 0) {
+      toast.error('Önce firma eklemeniz gerekiyor')
+      return
+    }
+
+    setGenerating('all')
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Oturum bulunamadı')
+
+      const customer = await resolveCustomer(user.id)
+      setSelectedCustomer(customer)
+      setCustomerName(customer.name)
+      setCustomerTaxNo(customer.tax_no)
+      setCustomerQuery(customer.name)
+
+      let ok = 0
+      const pdfs: string[] = []
+
+      for (const company of companies) {
+        setGenerating(company.id)
+        const pdfUrl = await generateQuoteForCompany(user.id, customer, company)
+        ok += 1
+        if (pdfUrl) pdfs.push(pdfUrl)
+      }
+
+      toast.success(`${ok} firmadan teklif oluşturuldu`)
+      pdfs.forEach((url) => window.open(url, '_blank'))
+    } catch (error) {
+      console.error('Quote generation error:', error)
+      toast.error(error instanceof Error ? error.message : 'Toplu teklif oluşturulamadı')
+    } finally {
+      setGenerating(null)
+    }
   }
 
   const displayTotals = calculateTotals(1)
@@ -321,27 +509,81 @@ export default function NewQuotePage() {
           {/* Customer Info */}
           <Card className="border-slate-700 bg-slate-800/50">
             <CardHeader>
-              <CardTitle className="text-white">Müşteri Bilgileri</CardTitle>
+              <CardTitle className="text-white">Müşteri</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="text-slate-200">Müşteri Adı</Label>
-                <Input
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Örn: Ahmet Yılmaz"
-                  className="border-slate-600 bg-slate-700 text-white placeholder:text-slate-500"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-slate-200">Firma Adı</Label>
-                <Input
-                  value={customerCompany}
-                  onChange={(e) => setCustomerCompany(e.target.value)}
-                  placeholder="Örn: ABC Ltd. Şti."
-                  className="border-slate-600 bg-slate-700 text-white placeholder:text-slate-500"
-                />
-              </div>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-slate-400">
+                Kayıtlı müşteriyi ara ve seç. İlk kez teklif veriyorsan adı ve vergi numarasını gir — sonraki tekliflerde geçmişi buradan takip edilir.
+              </p>
+
+              {selectedCustomer ? (
+                <div className="flex items-start justify-between gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-white break-words">{selectedCustomer.name}</p>
+                    <p className="text-sm text-slate-400">VKN: {selectedCustomer.tax_no}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearCustomer}
+                    className="shrink-0 text-slate-300 hover:text-white"
+                  >
+                    <X className="mr-1 h-4 w-4" />
+                    Değiştir
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="relative space-y-2">
+                    <Label className="text-slate-200">Müşteri adı *</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <Input
+                        value={customerQuery}
+                        onChange={(e) => {
+                          setCustomerQuery(e.target.value)
+                          setCustomerName(e.target.value)
+                          setShowSuggestions(true)
+                        }}
+                        onFocus={() => setShowSuggestions(true)}
+                        placeholder="İsim veya vergi no ile ara..."
+                        className="border-slate-600 bg-slate-700 pl-10 text-white placeholder:text-slate-500"
+                      />
+                    </div>
+                    {showSuggestions && matchingCustomers.length > 0 && (
+                      <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-slate-600 bg-slate-800 shadow-xl">
+                        {matchingCustomers.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => pickCustomer(c)}
+                            className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-slate-700"
+                          >
+                            <span className="text-sm text-white">{c.name}</span>
+                            <span className="text-xs text-slate-400">VKN: {c.tax_no}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-slate-200">Vergi numarası *</Label>
+                    <Input
+                      value={customerTaxNo}
+                      onChange={(e) => setCustomerTaxNo(e.target.value)}
+                      placeholder="İlk teklifte zorunlu — sonraki seferlerde hatırlanır"
+                      className="border-slate-600 bg-slate-700 text-white placeholder:text-slate-500"
+                    />
+                    {customerTaxNo && customers.some((c) => c.tax_no === normalizeTaxNo(customerTaxNo)) && (
+                      <p className="text-xs text-emerald-400">
+                        Bu VKN kayıtlı. Teklif, mevcut müşteriye bağlanacak.
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -349,6 +591,15 @@ export default function NewQuotePage() {
           <Card className="border-slate-700 bg-slate-800/50">
             <CardHeader>
               <CardTitle className="text-white">Ürünler</CardTitle>
+              {activeCustomerId && (
+                <p className="text-xs text-slate-400">
+                  {loadingLastPrices
+                    ? 'Bu müşteriye verilen son fiyatlar yükleniyor…'
+                    : Object.keys(lastPrices).length > 0
+                      ? 'Son teklif turundaki 1x (normal) firmaların en düşük birim fiyatı gösterilir.'
+                      : 'Bu müşteriye henüz ürün teklifi yok — ilk fiyatlar katalogdan gider.'}
+                </p>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Add Product */}
@@ -358,16 +609,20 @@ export default function NewQuotePage() {
                     <SelectValue placeholder="Ürün seçin..." />
                   </SelectTrigger>
                   <SelectContent className="border-slate-600 bg-slate-700 max-h-64">
-                    {products.map((product) => (
+                    {products.map((product) => {
+                      const last = getLastPrice(product)
+                      return (
                       <SelectItem 
                         key={product.id} 
                         value={product.id} 
                         className="text-white hover:bg-slate-600"
                         disabled={items.some(i => i.product_id === product.id)}
                       >
-                        {product.name} {product.brand && `(${product.brand})`} - ₺{product.unit_price.toLocaleString('tr-TR')}
+                        {product.name} {product.brand && `(${product.brand})`} — ₺{formatMoney(product.unit_price)}
+                        {last ? ` · 1x en düşük ₺${formatMoney(last.unitPrice)}` : ''}
                       </SelectItem>
-                    ))}
+                      )
+                    })}
                   </SelectContent>
                 </Select>
                 <Button onClick={addItem} className="bg-gradient-to-r from-emerald-500 to-cyan-500">
@@ -385,12 +640,16 @@ export default function NewQuotePage() {
                         <TableHead className="text-slate-300 w-24">Miktar</TableHead>
                         <TableHead className="text-slate-300">Birim</TableHead>
                         <TableHead className="text-right text-slate-300">Birim Fiyat</TableHead>
+                        <TableHead className="text-right text-slate-300">Son 1x en düşük</TableHead>
                         <TableHead className="text-right text-slate-300">Tutar</TableHead>
                         <TableHead className="w-12"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {items.map((item) => (
+                      {items.map((item) => {
+                        const last = getLastPrice(item.product)
+                        const delta = last ? item.product.unit_price - last.unitPrice : 0
+                        return (
                         <TableRow key={item.product_id} className="border-slate-700">
                           <TableCell className="text-white">
                             {item.product.name}
@@ -410,10 +669,31 @@ export default function NewQuotePage() {
                           </TableCell>
                           <TableCell className="text-slate-300">{item.product.unit}</TableCell>
                           <TableCell className="text-right text-slate-300">
-                            ₺{item.product.unit_price.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                            ₺{formatMoney(item.product.unit_price)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {last ? (
+                              <div className="text-xs">
+                                <div className="flex items-center justify-end gap-1 text-amber-300">
+                                  <History className="h-3 w-3" />
+                                  ₺{formatMoney(last.unitPrice)}
+                                </div>
+                                <div className="text-slate-500">
+                                  {formatShortDate(last.quotedAt)}
+                                  {delta !== 0 && (
+                                    <span className={delta > 0 ? ' text-red-400' : ' text-emerald-400'}>
+                                      {' '}
+                                      {delta > 0 ? '+' : ''}{formatMoney(delta)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-600">—</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-right text-white font-medium">
-                            ₺{(item.product.unit_price * item.quantity).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                            ₺{formatMoney(item.product.unit_price * item.quantity)}
                           </TableCell>
                           <TableCell>
                             <Button
@@ -426,7 +706,8 @@ export default function NewQuotePage() {
                             </Button>
                           </TableCell>
                         </TableRow>
-                      ))}
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -440,26 +721,6 @@ export default function NewQuotePage() {
             </CardContent>
           </Card>
 
-          {/* Template Selection */}
-          <Card className="border-slate-700 bg-slate-800/50">
-            <CardHeader>
-              <CardTitle className="text-white">Şablon</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-                <SelectTrigger className="border-slate-600 bg-slate-700 text-white">
-                  <SelectValue placeholder="Şablon seçin..." />
-                </SelectTrigger>
-                <SelectContent className="border-slate-600 bg-slate-700">
-                  {templates.map((template) => (
-                    <SelectItem key={template.id} value={template.id} className="text-white hover:bg-slate-600">
-                      {template.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Right Column - Summary & Actions */}
@@ -497,33 +758,56 @@ export default function NewQuotePage() {
                   <p className="text-slate-400 text-sm">Önce firma eklemeniz gerekiyor</p>
                 </div>
               ) : (
-                companies.map((company) => {
+                <>
+                <Button
+                  onClick={handleGenerateAll}
+                  disabled={generating !== null || items.length === 0}
+                  className="h-auto w-full whitespace-normal bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-3 hover:from-amber-600 hover:to-orange-600"
+                >
+                  {generating !== null ? (
+                    <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
+                  ) : (
+                    <Layers className="mr-2 h-4 w-4 shrink-0" />
+                  )}
+                  <span className="text-left leading-snug">
+                    Tüm firmalardan teklif ver ({companies.length})
+                  </span>
+                </Button>
+                {companies.map((company) => {
                   const companyTotals = calculateTotals(company.multiplier)
                   return (
                     <Button
                       key={company.id}
                       onClick={() => handleGenerateQuote(company)}
                       disabled={generating !== null || items.length === 0}
-                      className={`w-full justify-between ${
+                      className={`h-auto min-h-11 w-full items-start justify-between gap-3 whitespace-normal px-3 py-2.5 text-left ${
                         company.multiplier === 1
                           ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600'
                           : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600'
                       }`}
                     >
-                      <span className="flex items-center gap-2">
+                      <span className="flex min-w-0 flex-1 items-start gap-2">
                         {generating === company.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
                         ) : (
-                          <FileDown className="h-4 w-4" />
+                          <FileDown className="mt-0.5 h-4 w-4 shrink-0" />
                         )}
-                        {getCompanyLabel(company)}
+                        <span className="min-w-0 flex-1 break-words leading-snug">
+                          {company.title}
+                          {company.multiplier !== 1 && (
+                            <span className="ml-1 opacity-80">
+                              (+%{Math.round((company.multiplier - 1) * 100)})
+                            </span>
+                          )}
+                        </span>
                       </span>
-                      <span className="text-xs opacity-80">
+                      <span className="shrink-0 pt-0.5 text-xs tabular-nums opacity-80">
                         ₺{companyTotals.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 0 })}
                       </span>
                     </Button>
                   )
-                })
+                })}
+                </>
               )}
             </CardContent>
           </Card>

@@ -1,40 +1,21 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { Tables } from '@/lib/database.types'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { toast } from 'sonner'
-import { Plus, Pencil, Trash2, FileText, Loader2, Copy, Eye, X } from 'lucide-react'
+import { FileText, Eye, X, Lock, Check } from 'lucide-react'
 import { generateTemplate, QuoteData } from '@/lib/pdf-templates'
-
-type QuoteTemplate = Tables<'quote_templates'>
+import { BUILTIN_TEMPLATES, BuiltinTemplate } from '@/lib/templates'
 
 // Örnek önizleme verileri
 const SAMPLE_QUOTE_DATA: QuoteData = {
   quote: {
     id: 'preview-001',
     quote_no: 'TKL-2024-001',
-    customer_name: 'Ahmet Yılmaz',
-    customer_company: 'ABC İnşaat Ltd. Şti.',
+    customer_name: null,
+    customer_company: 'KAHRAMANMARAŞ ELBİSTAN KARAELBİSTAN 6. ETAP 1. KISIM TOPLU KONUTLARI SİTE YÖNETİMİ',
     currency: 'TRY',
     subtotal: 15750.00,
     vat_total: 2835.00,
@@ -42,20 +23,20 @@ const SAMPLE_QUOTE_DATA: QuoteData = {
     created_at: new Date().toISOString(),
   },
   company: {
-    title: 'Örnek Firma A.Ş.',
-    address: 'Atatürk Cad. No:123, Kadıköy, İstanbul',
-    tax_office: 'Kadıköy',
-    tax_no: '1234567890',
-    phone: '+90 216 123 45 67',
-    email: 'info@ornekfirma.com',
-    iban: 'TR00 0000 0000 0000 0000 0000 00',
+    title: 'ORC GRUP DANIŞMANLIK TEMİZLİK VALE HİZ. KIRTASİYE HIRDAVAT SANAYİ TİC. LTD. ŞTİ.',
+    address: 'Yenişehir Mh. Aydıntaş Ayçel Sk. MVK Sitesi A Blok No:7 Daire No:69 Pendik / İstanbul',
+    tax_office: 'Pendik',
+    tax_no: '64507601899',
+    phone: null,
+    email: 'info@orcgrup.com',
+    iban: null,
     logo_url: null,
   },
   signature: {
-    signer_name: 'Mehmet Demir',
-    signer_title: 'Satış Müdürü',
+    signer_name: '',
+    signer_title: '',
     signature_image_url: null,
-    stamp_image_url: null,
+    stamp_image_url: '/stamps/orc-grup-kase.png',
   },
   items: [
     {
@@ -105,177 +86,41 @@ const SAMPLE_QUOTE_DATA: QuoteData = {
   ],
 }
 
-const TEMPLATE_KEYS = [
-  { value: 'modern', label: 'Modern', description: 'Minimalist ve çağdaş tasarım' },
-  { value: 'classic', label: 'Klasik', description: 'Geleneksel ve profesyonel görünüm' },
-  { value: 'minimal', label: 'Minimal', description: 'Sade ve temiz düzen' },
-  { value: 'corporate', label: 'Kurumsal', description: 'Profesyonel iş görünümü' },
-  { value: 'elegant', label: 'Zarif', description: 'Sofistike ve şık tasarım' },
-  { value: 'bold', label: 'Cesur', description: 'Güçlü ve etkileyici tasarım' },
-]
+const getTemplateColor = (key: string) => {
+  switch (key) {
+    case 'form': return 'bg-slate-200 text-slate-800'
+    case 'modern': return 'bg-emerald-500/20 text-emerald-400'
+    case 'classic': return 'bg-amber-500/20 text-amber-400'
+    case 'minimal': return 'bg-purple-500/20 text-purple-400'
+    case 'corporate': return 'bg-blue-500/20 text-blue-400'
+    case 'elegant': return 'bg-yellow-500/20 text-yellow-400'
+    case 'bold': return 'bg-orange-500/20 text-orange-400'
+    default: return 'bg-slate-500/20 text-slate-400'
+  }
+}
 
 export default function TemplatesPage() {
-  const [templates, setTemplates] = useState<QuoteTemplate[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingTemplate, setEditingTemplate] = useState<QuoteTemplate | null>(null)
-  
-  // Preview state
+  // Seçili (ücretsiz) şablon
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+
+  // Önizleme durumu
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewHtml, setPreviewHtml] = useState('')
   const [previewTemplateName, setPreviewTemplateName] = useState('')
 
-  // Form state
-  const [name, setName] = useState('')
-  const [baseTemplateKey, setBaseTemplateKey] = useState('modern')
-
-  const supabase = createClient()
-
-  const fetchTemplates = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data, error } = await supabase
-      .from('quote_templates')
-      .select('*')
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      toast.error('Şablonlar yüklenemedi')
-      return
-    }
-
-    setTemplates(data || [])
-    setLoading(false)
-  }, [supabase])
-
-  useEffect(() => {
-    fetchTemplates()
-  }, [fetchTemplates])
-
-  const resetForm = () => {
-    setName('')
-    setBaseTemplateKey('modern')
-    setEditingTemplate(null)
-  }
-
-  const openCreateDialog = () => {
-    resetForm()
-    setDialogOpen(true)
-  }
-
-  const openEditDialog = (template: QuoteTemplate) => {
-    setEditingTemplate(template)
-    setName(template.name)
-    setBaseTemplateKey(template.base_template_key)
-    setDialogOpen(true)
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      toast.error('Oturum bulunamadı')
-      setSaving(false)
-      return
-    }
-
-    const templateData = {
-      name,
-      base_template_key: baseTemplateKey,
-      user_id: user.id,
-    }
-
-    if (editingTemplate) {
-      const { error } = await supabase
-        .from('quote_templates')
-        .update(templateData)
-        .eq('id', editingTemplate.id)
-
-      if (error) {
-        toast.error('Şablon güncellenemedi')
-        setSaving(false)
-        return
-      }
-      toast.success('Şablon güncellendi')
-    } else {
-      const { error } = await supabase
-        .from('quote_templates')
-        .insert(templateData)
-
-      if (error) {
-        toast.error('Şablon eklenemedi')
-        setSaving(false)
-        return
-      }
-      toast.success('Şablon eklendi')
-    }
-
-    setSaving(false)
-    setDialogOpen(false)
-    resetForm()
-    fetchTemplates()
-  }
-
-  const handleDuplicate = async (template: QuoteTemplate) => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { error } = await supabase
-      .from('quote_templates')
-      .insert({
-        name: `${template.name} (Kopya)`,
-        base_template_key: template.base_template_key,
-        config_json: template.config_json,
-        user_id: user.id,
-      })
-
-    if (error) {
-      toast.error('Şablon kopyalanamadı')
-      return
-    }
-
-    toast.success('Şablon kopyalandı')
-    fetchTemplates()
-  }
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Bu şablonu silmek istediğinize emin misiniz?')) return
-
-    const { error } = await supabase
-      .from('quote_templates')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      toast.error('Şablon silinemedi')
-      return
-    }
-
-    toast.success('Şablon silindi')
-    fetchTemplates()
-  }
-
-  const getTemplateColor = (key: string) => {
-    switch (key) {
-      case 'modern': return 'bg-emerald-500/20 text-emerald-400'
-      case 'classic': return 'bg-amber-500/20 text-amber-400'
-      case 'minimal': return 'bg-purple-500/20 text-purple-400'
-      case 'corporate': return 'bg-blue-500/20 text-blue-400'
-      case 'elegant': return 'bg-yellow-500/20 text-yellow-400'
-      case 'bold': return 'bg-orange-500/20 text-orange-400'
-      default: return 'bg-slate-500/20 text-slate-400'
-    }
-  }
-
-  const handlePreview = (template: QuoteTemplate) => {
-    const html = generateTemplate(template.base_template_key, SAMPLE_QUOTE_DATA)
-    setPreviewHtml(html)
-    setPreviewTemplateName(template.name)
+  const handlePreview = (t: BuiltinTemplate) => {
+    setPreviewHtml(generateTemplate(t.key, SAMPLE_QUOTE_DATA))
+    setPreviewTemplateName(t.name)
     setPreviewOpen(true)
+  }
+
+  const handleSelect = (t: BuiltinTemplate) => {
+    if (t.premium) {
+      toast.info('Bu şablon Premium üyelere özel. Yükseltmek için üye olun.')
+      return
+    }
+    setSelectedKey(t.key)
+    toast.success(`${t.name} şablonu seçildi`)
   }
 
   return (
@@ -283,43 +128,56 @@ export default function TemplatesPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white">Şablonlar</h1>
-          <p className="mt-1 text-slate-400">PDF şablonlarınızı yönetin</p>
+          <p className="mt-1 text-slate-400">
+            Teklif tasarımlarınızı seçin — firmalarınıza şablon atayın
+          </p>
         </div>
-        <Button onClick={openCreateDialog} className="bg-gradient-to-r from-emerald-500 to-cyan-500">
-          <Plus className="mr-2 h-4 w-4" />
-          Şablon Ekle
-        </Button>
       </div>
 
-      {loading ? (
-        <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-        </div>
-      ) : templates.length === 0 ? (
-        <Card className="border-slate-700 bg-slate-800/50">
-          <CardContent className="flex h-64 flex-col items-center justify-center text-center">
-            <FileText className="mb-4 h-12 w-12 text-slate-500" />
-            <p className="text-lg text-slate-300">Henüz şablon eklenmemiş</p>
-            <p className="text-sm text-slate-500">Teklif PDF&apos;leri için şablon oluşturun</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {templates.map((template) => (
-            <Card key={template.id} className="border-slate-700 bg-slate-800/50 overflow-hidden group">
-              {/* Preview area - clickable */}
-              <div 
+      <p className="text-sm text-slate-500">
+        3 şablon ücretsiz seçilebilir (Teklif Formu, Modern, Klasik). Diğerleri önizlenebilir; seçim için Premium gerekir.
+      </p>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {BUILTIN_TEMPLATES.map((t) => {
+          const isSelected = selectedKey === t.key
+          return (
+            <Card
+              key={t.key}
+              className={`border-slate-700 bg-slate-800/50 overflow-hidden group transition-shadow ${
+                isSelected ? 'ring-2 ring-emerald-500' : ''
+              }`}
+            >
+              {/* Önizleme alanı - tıklanabilir */}
+              <div
                 className="relative h-48 bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center cursor-pointer overflow-hidden"
-                onClick={() => handlePreview(template)}
+                onClick={() => handlePreview(t)}
               >
-                {/* Mini preview iframe */}
+                {/* Mini önizleme iframe */}
                 <div className="absolute inset-0 pointer-events-none transform scale-[0.25] origin-top-left w-[400%] h-[400%]">
                   <iframe
-                    srcDoc={generateTemplate(template.base_template_key, SAMPLE_QUOTE_DATA)}
+                    srcDoc={generateTemplate(t.key, SAMPLE_QUOTE_DATA)}
                     className="w-full h-full border-0"
-                    title={`Preview ${template.name}`}
+                    title={`Preview ${t.name}`}
                   />
                 </div>
+
+                {/* Premium kilit rozeti */}
+                {t.premium && (
+                  <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-full bg-slate-900/90 px-2 py-1 text-xs font-medium text-yellow-400">
+                    <Lock className="h-3 w-3" />
+                    Premium
+                  </div>
+                )}
+
+                {/* Ücretsiz seçili işareti */}
+                {isSelected && (
+                  <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-1 text-xs font-medium text-white">
+                    <Check className="h-3 w-3" />
+                    Seçili
+                  </div>
+                )}
+
                 {/* Hover overlay */}
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <div className="flex items-center gap-2 text-white font-medium">
@@ -328,119 +186,75 @@ export default function TemplatesPage() {
                   </div>
                 </div>
               </div>
+
               <CardHeader className="flex flex-row items-start justify-between pb-2">
                 <div>
-                  <CardTitle className="text-lg text-white">{template.name}</CardTitle>
-                  <Badge className={`mt-1 ${getTemplateColor(template.base_template_key)}`}>
-                    {TEMPLATE_KEYS.find(k => k.value === template.base_template_key)?.label || template.base_template_key}
-                  </Badge>
+                  <CardTitle className="text-lg text-white">{t.name}</CardTitle>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Badge className={getTemplateColor(t.key)}>{t.name}</Badge>
+                    {t.premium ? (
+                      <Badge className="bg-yellow-500/20 text-yellow-400">
+                        <Lock className="mr-1 h-3 w-3" />
+                        Premium
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-emerald-500/20 text-emerald-400">Ücretsiz</Badge>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
+
               <CardContent>
+                <p className="mb-3 text-sm text-slate-400">{t.description}</p>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handlePreview(template)}
+                    onClick={() => handlePreview(t)}
                     className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-700"
                   >
                     <Eye className="mr-1 h-3 w-3" />
                     Önizle
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEditDialog(template)}
-                    className="border-slate-600 text-slate-300 hover:bg-slate-700"
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDuplicate(template)}
-                    className="border-slate-600 text-slate-300 hover:bg-slate-700"
-                  >
-                    <Copy className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDelete(template.id)}
-                    className="border-slate-600 text-slate-300 hover:bg-red-500/20 hover:text-red-400"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
+                  {t.premium ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled
+                      onClick={() => handleSelect(t)}
+                      className="flex-1 border-slate-700 text-slate-500"
+                    >
+                      <Lock className="mr-1 h-3 w-3" />
+                      Premium — Kilitli
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => handleSelect(t)}
+                      className={`flex-1 ${
+                        isSelected
+                          ? 'bg-emerald-600 hover:bg-emerald-600'
+                          : 'bg-gradient-to-r from-emerald-500 to-cyan-500'
+                      }`}
+                    >
+                      {isSelected ? (
+                        <>
+                          <Check className="mr-1 h-3 w-3" />
+                          Seçildi
+                        </>
+                      ) : (
+                        'Seç'
+                      )}
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      )}
+          )
+        })}
+      </div>
 
-      {/* Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="border-slate-700 bg-slate-800 text-white">
-          <DialogHeader>
-            <DialogTitle>
-              {editingTemplate ? 'Şablon Düzenle' : 'Yeni Şablon Ekle'}
-            </DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSubmit}>
-            <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Şablon Adı *</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  placeholder="Örn: Ana Firma Şablonu"
-                  className="border-slate-600 bg-slate-700 text-white"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Temel Tasarım</Label>
-                <Select value={baseTemplateKey} onValueChange={setBaseTemplateKey}>
-                  <SelectTrigger className="border-slate-600 bg-slate-700 text-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="border-slate-600 bg-slate-700">
-                    {TEMPLATE_KEYS.map((t) => (
-                      <SelectItem key={t.value} value={t.value} className="text-white hover:bg-slate-600">
-                        <div>
-                          <span className="font-medium">{t.label}</span>
-                          <span className="ml-2 text-slate-400 text-xs">{t.description}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setDialogOpen(false)}
-                className="text-slate-300"
-              >
-                İptal
-              </Button>
-              <Button
-                type="submit"
-                disabled={saving}
-                className="bg-gradient-to-r from-emerald-500 to-cyan-500"
-              >
-                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {editingTemplate ? 'Güncelle' : 'Ekle'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Preview Modal */}
+      {/* Önizleme Modalı */}
       {previewOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
           <div className="relative w-full max-w-5xl h-[90vh] bg-white rounded-lg overflow-hidden shadow-2xl">
@@ -460,7 +274,7 @@ export default function TemplatesPage() {
                 <X className="h-5 w-5" />
               </Button>
             </div>
-            {/* Preview iframe */}
+            {/* Önizleme iframe */}
             <iframe
               srcDoc={previewHtml}
               className="w-full h-full pt-14 border-0"
@@ -472,4 +286,3 @@ export default function TemplatesPage() {
     </div>
   )
 }
-

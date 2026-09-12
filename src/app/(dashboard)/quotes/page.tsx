@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { FileText, Loader2, ExternalLink, Trash2, Calendar, Building2, User, FilePlus } from 'lucide-react'
+import { FileText, Loader2, ExternalLink, Trash2, Calendar, User, FilePlus, Hash, ChevronDown } from 'lucide-react'
 import Link from 'next/link'
 
 interface CompanyInfo {
@@ -23,9 +23,16 @@ interface CompanyInfo {
   multiplier: number
 }
 
+interface CustomerInfo {
+  id: string
+  name: string
+  tax_no: string
+}
+
 interface Quote {
   id: string
   quote_no: string | null
+  customer_id: string | null
   customer_name: string | null
   customer_company: string | null
   subtotal: number
@@ -34,11 +41,13 @@ interface Quote {
   pdf_url: string | null
   created_at: string
   company: CompanyInfo | CompanyInfo[] | null
+  customer: CustomerInfo | CustomerInfo[] | null
 }
 
 export default function QuotesPage() {
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [loading, setLoading] = useState(true)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const supabase = createClient()
 
@@ -51,6 +60,7 @@ export default function QuotesPage() {
       .select(`
         id,
         quote_no,
+        customer_id,
         customer_name,
         customer_company,
         subtotal,
@@ -58,10 +68,11 @@ export default function QuotesPage() {
         grand_total,
         pdf_url,
         created_at,
-        company:companies(id, title, multiplier)
+        company:companies(id, title, multiplier),
+        customer:customers(id, name, tax_no)
       `)
       .order('created_at', { ascending: false })
-      .limit(50)
+      .limit(200)
 
     if (error) {
       toast.error('Teklifler yüklenemedi')
@@ -156,12 +167,56 @@ export default function QuotesPage() {
     return company
   }
 
+  const getCustomer = (customer: CustomerInfo | CustomerInfo[] | null): CustomerInfo | null => {
+    if (!customer) return null
+    if (Array.isArray(customer)) return customer[0] || null
+    return customer
+  }
+
+  type CustomerGroup = {
+    key: string
+    customer: CustomerInfo | null
+    label: string
+    taxNo: string | null
+    quotes: Quote[]
+  }
+
+  const groups: CustomerGroup[] = (() => {
+    const map = new Map<string, CustomerGroup>()
+    for (const q of quotes) {
+      const customer = getCustomer(q.customer)
+      const label = customer?.name || q.customer_company || q.customer_name || 'Müşteri belirtilmedi'
+      const key = customer?.id || q.customer_id || `name:${label}`
+      const existing = map.get(key)
+      if (existing) {
+        existing.quotes.push(q)
+      } else {
+        map.set(key, {
+          key,
+          customer,
+          label,
+          taxNo: customer?.tax_no ?? null,
+          quotes: [q],
+        })
+      }
+    }
+    return [...map.values()].sort((a, b) => {
+      const aDate = a.quotes[0]?.created_at || ''
+      const bDate = b.quotes[0]?.created_at || ''
+      return bDate.localeCompare(aDate)
+    })
+  })()
+
+  const toggleGroup = (key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white">Teklifler</h1>
-          <p className="mt-1 text-slate-400">Oluşturduğunuz tüm teklifleri görüntüleyin</p>
+          <p className="mt-1 text-slate-400">Teklifler müşteri bazında gruplanır</p>
         </div>
         <Link href="/quotes/new">
           <Button className="bg-gradient-to-r from-emerald-500 to-cyan-500">
@@ -190,121 +245,132 @@ export default function QuotesPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="border-slate-700 bg-slate-800/50 overflow-hidden">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-slate-700 hover:bg-transparent">
-                  <TableHead className="text-slate-300">Teklif No</TableHead>
-                  <TableHead className="text-slate-300">Müşteri</TableHead>
-                  <TableHead className="text-slate-300">Firma</TableHead>
-                  <TableHead className="text-slate-300">Tarih</TableHead>
-                  <TableHead className="text-right text-slate-300">Toplam</TableHead>
-                  <TableHead className="text-center text-slate-300">PDF</TableHead>
-                  <TableHead className="text-center text-slate-300">İşlem</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {quotes.map((quote) => (
-                  <TableRow key={quote.id} className="border-slate-700 hover:bg-slate-700/30">
-                    <TableCell className="font-medium text-white">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-emerald-400" />
-                        {quote.quote_no || quote.id.slice(0, 8).toUpperCase()}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-0.5">
-                        {quote.customer_name && (
-                          <div className="flex items-center gap-1 text-white">
-                            <User className="h-3 w-3 text-slate-500" />
-                            {quote.customer_name}
-                          </div>
-                        )}
-                        {quote.customer_company && (
-                          <div className="flex items-center gap-1 text-slate-400 text-sm">
-                            <Building2 className="h-3 w-3 text-slate-500" />
-                            {quote.customer_company}
-                          </div>
-                        )}
-                        {!quote.customer_name && !quote.customer_company && (
-                          <span className="text-slate-500 italic">Belirtilmedi</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {(() => {
-                        const company = getCompany(quote.company)
-                        return company ? (
-                          <div className="space-y-1">
-                            <div className="text-white text-sm">{company.title}</div>
-                            {getMultiplierBadge(company.multiplier)}
-                          </div>
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )
-                      })()}
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-1 text-slate-300 text-sm">
-                          <Calendar className="h-3 w-3 text-slate-500" />
-                          {formatDate(quote.created_at)}
-                        </div>
-                        {getRemainingBadge(quote.created_at)}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="space-y-0.5">
-                        <div className="text-white font-semibold">
-                          {formatCurrency(quote.grand_total)}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          KDV: {formatCurrency(quote.vat_total)}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {quote.pdf_url ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => window.open(quote.pdf_url!, '_blank')}
-                          className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </Button>
-                      ) : (
-                        <span className="text-slate-600 text-sm">-</span>
+        <div className="space-y-4">
+          {groups.map((group) => {
+            const isCollapsed = collapsed[group.key] === true
+            return (
+              <Card key={group.key} className="overflow-hidden border-slate-700 bg-slate-800/50">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-slate-700/30"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-start gap-2">
+                      <User className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                      <span className="font-medium text-white break-words">{group.label}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 pl-6 text-xs text-slate-400">
+                      {group.taxNo && (
+                        <span className="inline-flex items-center gap-1">
+                          <Hash className="h-3 w-3" />
+                          {group.taxNo}
+                        </span>
                       )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(quote.id)}
-                        className="text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
+                      <Badge className="bg-emerald-500/20 text-emerald-400">
+                        {group.quotes.length} teklif
+                      </Badge>
+                    </div>
+                  </div>
+                  <ChevronDown
+                    className={`mt-1 h-5 w-5 shrink-0 text-slate-400 transition-transform ${
+                      isCollapsed ? '-rotate-90' : ''
+                    }`}
+                  />
+                </button>
+
+                {!isCollapsed && (
+                  <div className="overflow-x-auto border-t border-slate-700">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-slate-700 hover:bg-transparent">
+                          <TableHead className="text-slate-300">Teklif No</TableHead>
+                          <TableHead className="text-slate-300">Firma</TableHead>
+                          <TableHead className="text-slate-300">Tarih</TableHead>
+                          <TableHead className="text-right text-slate-300">Toplam</TableHead>
+                          <TableHead className="text-center text-slate-300">PDF</TableHead>
+                          <TableHead className="text-center text-slate-300">İşlem</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {group.quotes.map((quote) => {
+                          const company = getCompany(quote.company)
+                          return (
+                            <TableRow key={quote.id} className="border-slate-700 hover:bg-slate-700/30">
+                              <TableCell className="font-medium text-white">
+                                <div className="flex items-center gap-2">
+                                  <FileText className="h-4 w-4 text-emerald-400" />
+                                  {quote.quote_no || quote.id.slice(0, 8).toUpperCase()}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {company ? (
+                                  <div className="space-y-1">
+                                    <div className="text-sm text-white break-words max-w-xs">{company.title}</div>
+                                    {getMultiplierBadge(company.multiplier)}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-500">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-1 text-sm text-slate-300">
+                                    <Calendar className="h-3 w-3 text-slate-500" />
+                                    {formatDate(quote.created_at)}
+                                  </div>
+                                  {getRemainingBadge(quote.created_at)}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="text-white font-semibold">
+                                  {formatCurrency(quote.grand_total)}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  KDV: {formatCurrency(quote.vat_total)}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {quote.pdf_url ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => window.open(quote.pdf_url!, '_blank')}
+                                    className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                  </Button>
+                                ) : (
+                                  <span className="text-sm text-slate-600">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDelete(quote.id)}
+                                  className="text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </Card>
+            )
+          })}
+        </div>
       )}
 
       {quotes.length > 0 && (
-        <div className="text-center space-y-1">
-          <p className="text-sm text-slate-500">
-            Son {quotes.length} teklif gösteriliyor
-          </p>
-          <p className="text-xs text-slate-600">
-            ⏱️ Teklifler 7 gün sonra otomatik olarak silinir
-          </p>
-        </div>
+        <p className="text-center text-sm text-slate-500">
+          {groups.length} müşteri · {quotes.length} teklif
+        </p>
       )}
     </div>
   )

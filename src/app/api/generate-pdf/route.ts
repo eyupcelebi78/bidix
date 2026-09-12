@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateTemplate, QuoteData } from '@/lib/pdf-templates'
+import { quotePdfFileName } from '@/lib/pdf-filename'
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,8 +22,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate HTML
-    const templateKey = body.templateKey || 'modern'
-    const html = generateTemplate(templateKey, quoteData)
+    const templateKey = body.templateKey || 'form'
+    const html = generateTemplate(templateKey, quoteData, request.nextUrl.origin)
 
     // Generate PDF using Playwright
     const { chromium } = await import('playwright')
@@ -41,8 +42,12 @@ export async function POST(request: NextRequest) {
 
     await browser.close()
 
-    // Upload PDF to Supabase Storage
-    const fileName = `${user.id}/${quoteId}.pdf`
+    const fileName = quotePdfFileName({
+      userId: user.id,
+      quoteId,
+      customerName: quoteData.quote.customer_company || quoteData.quote.customer_name,
+      companyTitle: quoteData.company.title,
+    })
     
     const { error: uploadError } = await supabase.storage
       .from('quotes')
