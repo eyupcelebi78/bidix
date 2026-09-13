@@ -1,90 +1,194 @@
 import { createClient } from '@/lib/supabase/server'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Package, Building2, FileText, TrendingUp } from 'lucide-react'
+import { istanbulDayKey } from '@/lib/money-tr'
+import { lowestQuotesOf, quoteBatchKey, type QuoteProductItem } from '@/lib/quote-batches'
+import { STATUS_LABEL, type QuoteStatus } from '@/lib/quote-share'
+import { DashboardView, type DashboardData } from './dashboard-view'
+
+const STATUS_COLOR: Record<QuoteStatus, string> = {
+  draft: '#94a3b8',
+  sent: '#38bdf8',
+  viewed: '#fbbf24',
+  accepted: '#34d399',
+  rejected: '#f87171',
+}
+
+function shiftDay(key: string, delta: number) {
+  const [year, month, day] = key.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + delta))
+  const y = date.getUTCFullYear()
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const d = String(date.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function dayLabel(key: string) {
+  return new Date(`${key}T12:00:00`).toLocaleDateString('tr-TR', {
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
+function greeting() {
+  const hour = Number(
+    new Date().toLocaleString('en-GB', {
+      hour: '2-digit',
+      hour12: false,
+      timeZone: 'Europe/Istanbul',
+    }),
+  )
+  if (hour < 6) return 'İyi geceler'
+  if (hour < 12) return 'Günaydın'
+  if (hour < 18) return 'İyi günler'
+  return 'İyi akşamlar'
+}
 
 export default async function DashboardPage() {
   const supabase = await createClient()
 
-  // Fetch counts
-  const [productsRes, companiesRes, quotesRes] = await Promise.all([
+  const [productsRes, companiesRes, quoteCountRes, quotesRes] = await Promise.all([
     supabase.from('products').select('id', { count: 'exact', head: true }),
     supabase.from('companies').select('id', { count: 'exact', head: true }),
-    supabase.from('quotes').select('id, grand_total', { count: 'exact' }),
+    supabase.from('quotes').select('id', { count: 'exact', head: true }),
+    supabase
+      .from('quotes')
+      .select('id, quote_no, share_token, grand_total, status, created_at, dispatched_at, paid_at, customer_id, customer_name, customer_company, quote_items(product_id, product_name, quantity)')
+      .order('created_at', { ascending: false }),
   ])
 
-  const productCount = productsRes.count || 0
-  const companyCount = companiesRes.count || 0
-  const quoteCount = quotesRes.count || 0
-  const totalRevenue = quotesRes.data?.reduce((sum, q) => sum + (q.grand_total || 0), 0) || 0
+  const quotes = quotesRes.data || []
+  const lowestQuotes = lowestRecentQuotes(quotes)
+  const today = istanbulDayKey()
+  const seriesDays = Array.from({ length: 14 }, (_, index) => shiftDay(today, index - 13))
+  const seriesMap = new Map(seriesDays.map((key) => [key, { amount: 0, count: 0 }]))
 
-  const stats = [
-    {
-      title: 'Toplam Ürün',
-      value: productCount,
-      icon: Package,
-      color: 'from-blue-500 to-blue-600',
-    },
-    {
-      title: 'Firma Sayısı',
-      value: companyCount,
-      icon: Building2,
-      color: 'from-purple-500 to-purple-600',
-    },
-    {
-      title: 'Toplam Teklif',
-      value: quoteCount,
-      icon: FileText,
-      color: 'from-emerald-500 to-emerald-600',
-    },
-    {
-      title: 'Toplam Tutar',
-      value: `₺${totalRevenue.toLocaleString('tr-TR')}`,
-      icon: TrendingUp,
-      color: 'from-amber-500 to-amber-600',
-    },
-  ]
+  const statusMap: Record<QuoteStatus, number> = {
+    draft: 0,
+    sent: 0,
+    viewed: 0,
+    accepted: 0,
+    rejected: 0,
+  }
+  const customerMap = new Map<string, number>()
+  let quoteTotal = 0
+  let openDebt = 0
+  let dispatchedCount = 0
+  let paidCount = 0
+  let thisWeek = 0
+  let lastWeek = 0
 
-  return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-        <p className="mt-1 text-slate-400">Bidix teklif yönetim platformuna genel bakış</p>
-      </div>
+  for (const quote of quotes) {
+    const amount = Number(quote.grand_total) || 0
+    const status = (quote.status || 'draft') as QuoteStatus
+    if (status in statusMap) statusMap[status] += 1
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => (
-          <Card key={stat.title} className="border-slate-700 bg-slate-800/50">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-slate-400">
-                {stat.title}
-              </CardTitle>
-              <div className={`rounded-lg bg-gradient-to-br ${stat.color} p-2`}>
-                <stat.icon className="h-4 w-4 text-white" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-white">{stat.value}</div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+    if (quote.dispatched_at) {
+      dispatchedCount += 1
+      if (quote.paid_at) paidCount += 1
+      else openDebt += amount
+    }
+  }
 
-      <Card className="border-slate-700 bg-slate-800/50">
-        <CardHeader>
-          <CardTitle className="text-white">Hızlı Başlangıç</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 text-slate-300">
-          <p>👋 Bidix&apos;e hoş geldiniz! Başlamak için:</p>
-          <ol className="list-inside list-decimal space-y-2 text-slate-400">
-            <li><strong className="text-white">Ürünler</strong> sayfasından ürünlerinizi ekleyin</li>
-            <li><strong className="text-white">Firmalar</strong> sayfasından firma bilgilerinizi girin</li>
-            <li><strong className="text-white">Kaşe</strong> sayfasından kaşe profilinizi oluşturun</li>
-            <li><strong className="text-white">Şablonlar</strong> sayfasından PDF şablonu seçin</li>
-            <li><strong className="text-white">Teklif Oluştur</strong> sayfasından ilk teklifinizi verin!</li>
-          </ol>
-        </CardContent>
-      </Card>
-    </div>
-  )
+  for (const quote of lowestQuotes) {
+    const amount = Number(quote.grand_total) || 0
+    quoteTotal += amount
+
+    const name = quote.customer_company || quote.customer_name || 'Müşteri belirtilmedi'
+    customerMap.set(name, (customerMap.get(name) || 0) + amount)
+
+    if (!quote.created_at) continue
+    const key = istanbulDayKey(quote.created_at)
+    const point = seriesMap.get(key)
+    if (point) {
+      point.amount += amount
+      point.count += 1
+    }
+
+    const age = seriesDays.indexOf(key)
+    if (age >= 7) thisWeek += amount
+    else if (age >= 0) lastWeek += amount
+  }
+
+  const weekDelta = lastWeek === 0
+    ? (thisWeek > 0 ? 100 : 0)
+    : Math.round(((thisWeek - lastWeek) / lastWeek) * 100)
+
+  const data: DashboardData = {
+    greeting: greeting(),
+    productCount: productsRes.count || 0,
+    companyCount: companiesRes.count || 0,
+    quoteCount: quoteCountRes.count || quotes.length,
+    quoteTotal,
+    openDebt,
+    dispatchedCount,
+    paidCount,
+    weekDelta,
+    series: seriesDays.map((key) => {
+      const point = seriesMap.get(key) || { amount: 0, count: 0 }
+      return { key, label: dayLabel(key), amount: point.amount, count: point.count }
+    }),
+    statuses: (Object.keys(statusMap) as QuoteStatus[])
+      .filter((key) => statusMap[key] > 0)
+      .map((key) => ({
+        key,
+        label: STATUS_LABEL[key],
+        value: statusMap[key],
+        color: STATUS_COLOR[key],
+      })),
+    topCustomers: [...customerMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, amount]) => ({ name, amount })),
+    recent: lowestQuotes.slice(0, 6).map((quote) => ({
+      id: quote.id,
+      quoteNo: quote.quote_no,
+      shareToken: quote.share_token,
+      customer: quote.customer_company || quote.customer_name || 'Müşteri belirtilmedi',
+      amount: Number(quote.grand_total) || 0,
+      createdAt: quote.created_at || '',
+      status: (quote.status || 'draft') as QuoteStatus,
+    })),
+  }
+
+  return <DashboardView data={data} />
 }
 
+function lowestRecentQuotes(
+  quotes: Array<{
+    id: string
+    quote_no: string | null
+    share_token: string
+    grand_total: number
+    status: string
+    created_at: string | null
+    customer_id: string | null
+    customer_name: string | null
+    customer_company: string | null
+    quote_items?: QuoteProductItem[] | null
+  }>,
+) {
+  const byCustomer = new Map<string, typeof quotes>()
+
+  for (const quote of quotes) {
+    const label = quote.customer_company || quote.customer_name || 'Müşteri belirtilmedi'
+    const key = quote.customer_id || `name:${label}`
+    const list = byCustomer.get(key)
+    if (list) list.push(quote)
+    else byCustomer.set(key, [quote])
+  }
+
+  const mains: typeof quotes = []
+  for (const list of byCustomer.values()) {
+    const batches = new Map<string, typeof quotes>()
+    for (const quote of list) {
+      const key = quoteBatchKey(quote.created_at, quote.quote_items)
+      const batch = batches.get(key)
+      if (batch) batch.push(quote)
+      else batches.set(key, [quote])
+    }
+    for (const batch of batches.values()) {
+      mains.push(...lowestQuotesOf(batch))
+    }
+  }
+
+  return mains.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+}

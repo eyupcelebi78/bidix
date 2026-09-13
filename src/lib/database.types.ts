@@ -114,22 +114,28 @@ export type Database = {
       customers: {
         Row: {
           created_at: string | null
+          email: string | null
           id: string
           name: string
+          phone: string | null
           tax_no: string
           user_id: string
         }
         Insert: {
           created_at?: string | null
+          email?: string | null
           id?: string
           name: string
+          phone?: string | null
           tax_no: string
           user_id: string
         }
         Update: {
           created_at?: string | null
+          email?: string | null
           id?: string
           name?: string
+          phone?: string | null
           tax_no?: string
           user_id?: string
         }
@@ -242,14 +248,22 @@ export type Database = {
           customer_company: string | null
           customer_id: string | null
           customer_name: string | null
+          dispatched_at: string | null
           grand_total: number
+          paid_at: string | null
           id: string
           pdf_url: string | null
           quote_no: string | null
+          responded_at: string | null
+          sent_at: string | null
+          sent_via: string | null
+          share_token: string
+          status: string
           subtotal: number
           template_id: string | null
           user_id: string
           vat_total: number
+          viewed_at: string | null
         }
         Insert: {
           company_id: string
@@ -258,14 +272,22 @@ export type Database = {
           customer_company?: string | null
           customer_id?: string | null
           customer_name?: string | null
+          dispatched_at?: string | null
           grand_total?: number
           id?: string
+          paid_at?: string | null
           pdf_url?: string | null
           quote_no?: string | null
+          responded_at?: string | null
+          sent_at?: string | null
+          sent_via?: string | null
+          share_token?: string
+          status?: string
           subtotal?: number
           template_id?: string | null
           user_id: string
           vat_total?: number
+          viewed_at?: string | null
         }
         Update: {
           company_id?: string
@@ -274,14 +296,22 @@ export type Database = {
           customer_company?: string | null
           customer_id?: string | null
           customer_name?: string | null
+          dispatched_at?: string | null
           grand_total?: number
+          paid_at?: string | null
           id?: string
           pdf_url?: string | null
           quote_no?: string | null
+          responded_at?: string | null
+          sent_at?: string | null
+          sent_via?: string | null
+          share_token?: string
+          status?: string
           subtotal?: number
           template_id?: string | null
           user_id?: string
           vat_total?: number
+          viewed_at?: string | null
         }
         Relationships: [
           {
@@ -342,7 +372,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_public_quote: {
+        Args: { p_token: string }
+        Returns: Json
+      }
+      respond_public_quote: {
+        Args: { p_action: string; p_token: string }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

@@ -57,6 +57,8 @@ export default function NewQuotePage() {
   const [customerTaxNo, setCustomerTaxNo] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [customerQuery, setCustomerQuery] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [customerEmail, setCustomerEmail] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [items, setItems] = useState<QuoteItem[]>([])
   const [selectedProductId, setSelectedProductId] = useState('')
@@ -232,6 +234,8 @@ export default function NewQuotePage() {
     setCustomerName(c.name)
     setCustomerTaxNo(c.tax_no)
     setCustomerQuery(c.name)
+    setCustomerPhone(c.phone || '')
+    setCustomerEmail(c.email || '')
     setShowSuggestions(false)
   }
 
@@ -240,6 +244,8 @@ export default function NewQuotePage() {
     setCustomerName('')
     setCustomerTaxNo('')
     setCustomerQuery('')
+    setCustomerPhone('')
+    setCustomerEmail('')
     setShowSuggestions(false)
   }
 
@@ -253,26 +259,50 @@ export default function NewQuotePage() {
   }).slice(0, 6)
 
   const resolveCustomer = async (userId: string): Promise<Customer> => {
-    if (selectedCustomer) return selectedCustomer
+    const name = customerName.trim() || customerQuery.trim() || selectedCustomer?.name || ''
+    const taxNo = normalizeTaxNo(customerTaxNo) || selectedCustomer?.tax_no || ''
+    const phone = customerPhone.trim() || null
+    const email = customerEmail.trim() || null
 
-    const name = customerName.trim() || customerQuery.trim()
-    const taxNo = normalizeTaxNo(customerTaxNo)
+    if (selectedCustomer) {
+      const next = {
+        ...selectedCustomer,
+        name: name || selectedCustomer.name,
+        phone: phone ?? selectedCustomer.phone,
+        email: email ?? selectedCustomer.email,
+      }
+      if (next.name !== selectedCustomer.name || next.phone !== selectedCustomer.phone || next.email !== selectedCustomer.email) {
+        await supabase
+          .from('customers')
+          .update({ name: next.name, phone: next.phone, email: next.email })
+          .eq('id', selectedCustomer.id)
+      }
+      return next
+    }
 
     if (!name) throw new Error('Müşteri adı gerekli')
     if (!taxNo) throw new Error('İlk teklif için müşteri vergi numarası gerekli')
 
     const existing = customers.find((c) => c.tax_no === taxNo)
     if (existing) {
-      if (existing.name !== name) {
-        await supabase.from('customers').update({ name }).eq('id', existing.id)
-        return { ...existing, name }
+      const next = {
+        ...existing,
+        name: name || existing.name,
+        phone: phone ?? existing.phone,
+        email: email ?? existing.email,
       }
-      return existing
+      if (next.name !== existing.name || next.phone !== existing.phone || next.email !== existing.email) {
+        await supabase
+          .from('customers')
+          .update({ name: next.name, phone: next.phone, email: next.email })
+          .eq('id', existing.id)
+      }
+      return next
     }
 
     const { data, error } = await supabase
       .from('customers')
-      .insert({ user_id: userId, name, tax_no: taxNo })
+      .insert({ user_id: userId, name, tax_no: taxNo, phone, email })
       .select()
       .single()
 
@@ -434,7 +464,7 @@ export default function NewQuotePage() {
       setCustomerQuery(customer.name)
 
       const pdfUrl = await generateQuoteForCompany(user.id, customer, company)
-      toast.success(`${company.title} için teklif oluşturuldu!`)
+      toast.success(`${company.title} için teklif oluşturuldu. WhatsApp veya e-posta ile Teklifler sayfasından gönder.`)
       if (pdfUrl) window.open(pdfUrl, '_blank')
     } catch (error) {
       console.error('Quote generation error:', error)
@@ -521,6 +551,11 @@ export default function NewQuotePage() {
                   <div className="min-w-0">
                     <p className="font-medium text-white break-words">{selectedCustomer.name}</p>
                     <p className="text-sm text-slate-400">VKN: {selectedCustomer.tax_no}</p>
+                    {(selectedCustomer.phone || selectedCustomer.email) && (
+                      <p className="text-xs text-slate-500">
+                        {[selectedCustomer.phone, selectedCustomer.email].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
                   </div>
                   <Button
                     type="button"
@@ -584,6 +619,31 @@ export default function NewQuotePage() {
                   </div>
                 </>
               )}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-slate-200">WhatsApp</Label>
+                  <Input
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="05xx xxx xx xx"
+                    className="border-slate-600 bg-slate-700 text-white placeholder:text-slate-500"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-200">E-posta</Label>
+                  <Input
+                    type="email"
+                    value={customerEmail}
+                    onChange={(e) => setCustomerEmail(e.target.value)}
+                    placeholder="musteri@firma.com"
+                    className="border-slate-600 bg-slate-700 text-white placeholder:text-slate-500"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">
+                İsteğe bağlı. Teklifler sayfasından WhatsApp veya e-posta ile göndermek için kullanılır.
+              </p>
             </CardContent>
           </Card>
 

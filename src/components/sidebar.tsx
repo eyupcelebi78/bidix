@@ -13,6 +13,7 @@ import {
   FileText, 
   FilePlus,
   FileStack,
+  BookOpen,
   LogOut,
   Menu,
   X
@@ -28,6 +29,7 @@ const navItems = [
   { href: '/templates', label: 'Şablonlar', icon: FileText },
   { href: '/quotes/new', label: 'Teklif Oluştur', icon: FilePlus },
   { href: '/quotes', label: 'Teklifler', icon: FileStack },
+  { href: '/ekstre', label: 'Cari Ekstre', icon: BookOpen },
 ]
 
 export function Sidebar() {
@@ -99,7 +101,7 @@ export function Sidebar() {
     <>
       {/* Mobile toggle */}
       <button
-        className="fixed left-4 top-4 z-50 rounded-lg bg-slate-800 p-2 text-white lg:hidden"
+        className="fixed left-4 top-4 z-50 rounded-lg bg-slate-800 p-2 text-white print:hidden lg:hidden"
         onClick={() => setMobileOpen(!mobileOpen)}
       >
         {mobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
@@ -116,7 +118,7 @@ export function Sidebar() {
       {/* Mobile sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 w-64 transform bg-slate-800 transition-transform lg:hidden',
+          'fixed inset-y-0 left-0 z-40 w-64 transform bg-slate-800 transition-transform print:hidden lg:hidden',
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
@@ -124,7 +126,7 @@ export function Sidebar() {
       </aside>
 
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 flex-shrink-0 bg-slate-800 lg:block">
+      <aside className="hidden w-64 flex-shrink-0 bg-slate-800 print:hidden lg:block">
         <NavContent />
       </aside>
     </>
