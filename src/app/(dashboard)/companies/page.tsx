@@ -31,11 +31,15 @@ import { BUILTIN_TEMPLATES, BuiltinTemplate, getTemplateName } from '@/lib/templ
 type Company = Tables<'companies'>
 type SignatureProfile = Tables<'signature_profiles'>
 
-const MULTIPLIERS = [
-  { value: '1.00', label: 'Normal (x1.00)' },
-  { value: '1.10', label: '+%10 (x1.10)' },
-  { value: '1.15', label: '+%15 (x1.15)' },
-]
+const MULTIPLIER_PERCENTS = [0, 5, 8, 10, 12, 15, 18, 20, 25, 30, 35, 40, 50]
+
+const MULTIPLIERS = MULTIPLIER_PERCENTS.map((pct) => {
+  const value = (1 + pct / 100).toFixed(2)
+  return {
+    value,
+    label: pct === 0 ? `Normal (x${value})` : `+%${pct} (x${value})`,
+  }
+})
 
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([])
@@ -123,7 +127,7 @@ export default function CompaniesPage() {
     setIban(company.iban || '')
     setLogoUrl(company.logo_url || '')
     setSignatureProfileId(company.signature_profile_id || '')
-    setMultiplier(company.multiplier.toString())
+    setMultiplier(Number(company.multiplier).toFixed(2))
     setTemplateKey(company.default_template_key || 'form')
     setDialogOpen(true)
   }
@@ -474,8 +478,19 @@ export default function CompaniesPage() {
                     <SelectTrigger className="border-slate-600 bg-slate-700 text-white">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="border-slate-600 bg-slate-700">
-                      {MULTIPLIERS.map((m) => (
+                    <SelectContent className="max-h-72 border-slate-600 bg-slate-700">
+                      {(MULTIPLIERS.some((m) => m.value === multiplier)
+                        ? MULTIPLIERS
+                        : [
+                            {
+                              value: multiplier,
+                              label: Number(multiplier) === 1
+                                ? `Normal (x${Number(multiplier).toFixed(2)})`
+                                : `+%${Math.round((Number(multiplier) - 1) * 100)} (x${Number(multiplier).toFixed(2)})`,
+                            },
+                            ...MULTIPLIERS,
+                          ]
+                      ).map((m) => (
                         <SelectItem key={m.value} value={m.value} className="text-white hover:bg-slate-600">
                           {m.label}
                         </SelectItem>
