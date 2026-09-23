@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { Plus, Trash2, Loader2, FileDown, Building2, Search, X, Layers, History } from 'lucide-react'
+import { QuickProductDialog } from '@/components/quick-product-dialog'
 
 type Product = Tables<'products'>
 type Company = Tables<'companies'>
@@ -195,6 +196,18 @@ export default function NewQuotePage() {
       product,
       quantity: 1,
     }])
+    setSelectedProductId('')
+  }
+
+  const addCreatedProduct = (product: Product) => {
+    setProducts((prev) => {
+      if (prev.some((row) => row.id === product.id)) return prev
+      return [...prev, product].sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+    })
+    setItems((prev) => {
+      if (prev.some((item) => item.product_id === product.id)) return prev
+      return [...prev, { product_id: product.id, product, quantity: 1 }]
+    })
     setSelectedProductId('')
   }
 
@@ -688,6 +701,7 @@ export default function NewQuotePage() {
                 <Button onClick={addItem} className="bg-gradient-to-r from-emerald-500 to-cyan-500">
                   <Plus className="h-4 w-4" />
                 </Button>
+                <QuickProductDialog onCreated={addCreatedProduct} />
               </div>
 
               {/* Items Table */}

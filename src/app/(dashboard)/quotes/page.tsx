@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { FileText, Loader2, ExternalLink, Trash2, User, FilePlus, ChevronDown, Truck } from 'lucide-react'
+import { FileText, Loader2, ExternalLink, Trash2, User, FilePlus, ChevronDown, Truck, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import { QuoteShareButtons } from '@/components/quote-share-buttons'
 import { QuoteStatus, STATUS_LABEL } from '@/lib/quote-share'
@@ -350,6 +350,16 @@ export default function QuotesPage() {
             companyTitle={company?.title || null}
             onSent={fetchQuotes}
           />
+          <Link href={`/quotes/${quote.id}/edit`}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-slate-400 hover:bg-slate-700/60 hover:text-white"
+              title="Revize et"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+          </Link>
           {quote.pdf_url ? (
             <Button
               variant="ghost"

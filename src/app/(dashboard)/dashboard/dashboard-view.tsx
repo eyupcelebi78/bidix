@@ -5,12 +5,7 @@ import Link from 'next/link'
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -26,6 +21,7 @@ import {
   BookOpen,
   Building2,
   ExternalLink,
+  Pencil,
   FilePlus,
   FileStack,
   Package,
@@ -66,10 +62,16 @@ const STATUS_STYLE: Record<QuoteStatus, string> = {
   rejected: 'bg-red-500/15 text-red-300',
 }
 
-function useCountUp(target: number, duration = 900) {
-  const [value, setValue] = useState(0)
+function useCountUp(target: number, duration = 700) {
+  const [value, setValue] = useState(target)
 
   useEffect(() => {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduce || target === 0) {
+      setValue(target)
+      return
+    }
+    setValue(0)
     const start = performance.now()
     let frame = 0
     const tick = (now: number) => {
@@ -89,56 +91,48 @@ function ChartTip({
   active,
   payload,
   label,
-  money,
 }: {
   active?: boolean
   payload?: Array<{ value?: number; payload?: { count?: number } }>
   label?: string
-  money?: boolean
 }) {
   if (!active || !payload?.[0]) return null
   const value = Number(payload[0].value) || 0
   const count = payload[0].payload?.count
   return (
-    <div className="rounded-lg border border-slate-600 bg-slate-900/95 px-3 py-2 text-xs shadow-xl">
+    <div className="rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-xs shadow-xl">
       <p className="text-slate-400">{label}</p>
-      <p className="mt-0.5 font-semibold text-white">
-        {money ? formatMoney(value) : value}
-      </p>
-      {typeof count === 'number' && (
-        <p className="text-slate-500">{count} teklif</p>
-      )}
+      <p className="mt-0.5 font-semibold text-white">{formatMoney(value)}</p>
+      {typeof count === 'number' && <p className="text-slate-500">{count} teklif</p>}
     </div>
   )
 }
 
 function StatCard({
   label,
-  display,
+  target,
+  format,
   hint,
   icon: Icon,
   tone,
-  delay,
 }: {
   label: string
-  display: string
+  target: number
+  format: (value: number) => string
   hint?: ReactNode
   icon: ComponentType<{ className?: string }>
   tone: string
-  delay: number
 }) {
+  const value = useCountUp(target)
   return (
-    <div
-      className="animate-in fade-in slide-in-from-bottom-3 fill-mode-both rounded-2xl border border-slate-700/80 bg-slate-800/40 p-4"
-      style={{ animationDelay: `${delay}ms`, animationDuration: '700ms' }}
-    >
+    <div className="rounded-2xl border border-slate-700/70 bg-slate-800/50 p-5">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-slate-500">{label}</p>
-          <p className="mt-2 text-2xl font-semibold tabular-nums text-white">{display}</p>
+          <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-white">{format(value)}</p>
           {hint}
         </div>
-        <div className={`rounded-xl bg-gradient-to-br p-2.5 text-white ${tone}`}>
+        <div className={`shrink-0 rounded-xl bg-gradient-to-br p-2.5 text-white ${tone}`}>
           <Icon className="h-4 w-4" />
         </div>
       </div>
@@ -146,19 +140,62 @@ function StatCard({
   )
 }
 
+function RevenueChart({ series }: { series: DashboardData['series'] }) {
+  const ticks = useMemo(
+    () => series.filter((_, index) => index % 2 === 0).map((row) => row.label),
+    [series],
+  )
+
+  return (
+    <div className="h-[320px] w-full">
+      <ResponsiveContainer width="100%" height="100%" debounce={80}>
+        <AreaChart data={series} margin={{ top: 12, right: 12, left: 8, bottom: 4 }}>
+          <defs>
+            <linearGradient id="quoteFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#34d399" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="#34d399" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid stroke="#1e293b" strokeWidth={1} vertical={false} />
+          <XAxis
+            dataKey="label"
+            ticks={ticks}
+            tick={{ fill: '#94a3b8', fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+            interval={0}
+            minTickGap={16}
+          />
+          <YAxis
+            tick={{ fill: '#64748b', fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+            width={64}
+            tickFormatter={(value) =>
+              Number(value) >= 1000 ? `${Math.round(Number(value) / 1000)} bin` : String(value)
+            }
+          />
+          <Tooltip content={<ChartTip />} cursor={{ stroke: '#334155', strokeWidth: 1 }} />
+          <Area
+            type="monotone"
+            dataKey="amount"
+            stroke="#34d399"
+            strokeWidth={2}
+            fill="url(#quoteFill)"
+            isAnimationActive={false}
+            dot={false}
+            activeDot={{ r: 4, strokeWidth: 0 }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
 export function DashboardView({ data }: { data: DashboardData }) {
-  const [ready, setReady] = useState(false)
-  const quoteTotal = useCountUp(data.quoteTotal)
-  const openDebt = useCountUp(data.openDebt)
-  const quoteCount = useCountUp(data.quoteCount)
-  const dispatched = useCountUp(data.dispatchedCount)
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setReady(true), 80)
-    return () => window.clearTimeout(timer)
-  }, [])
-
   const empty = data.quoteCount === 0
+  const statusTotal = data.statuses.reduce((sum, row) => sum + row.value, 0) || 1
+  const maxCustomer = Math.max(...data.topCustomers.map((row) => row.amount), 1)
   const todayLabel = useMemo(
     () =>
       new Date().toLocaleDateString('tr-TR', {
@@ -171,9 +208,9 @@ export function DashboardView({ data }: { data: DashboardData }) {
   )
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="animate-in fade-in slide-in-from-bottom-2 duration-700">
+        <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400/80">
             {todayLabel}
           </p>
@@ -196,18 +233,19 @@ export function DashboardView({ data }: { data: DashboardData }) {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Teklif"
-          display={Math.round(quoteCount).toLocaleString('tr-TR')}
+          target={data.quoteCount}
+          format={(value) => Math.round(value).toLocaleString('tr-TR')}
           hint={<p className="mt-1 text-xs text-slate-500">Tüm kayıtlar</p>}
           icon={FileStack}
           tone="from-emerald-500 to-cyan-500"
-          delay={40}
         />
         <StatCard
           label="Teklif tutarı"
-          display={formatMoney(quoteTotal)}
+          target={data.quoteTotal}
+          format={formatMoney}
           hint={
             <p className={`mt-1 inline-flex items-center gap-1 text-xs ${data.weekDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
               {data.weekDelta >= 0 ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
@@ -216,232 +254,172 @@ export function DashboardView({ data }: { data: DashboardData }) {
           }
           icon={Sparkles}
           tone="from-amber-500 to-orange-500"
-          delay={110}
         />
         <StatCard
           label="Açık borç"
-          display={formatMoney(openDebt)}
+          target={data.openDebt}
+          format={formatMoney}
           hint={<p className="mt-1 text-xs text-slate-500">Sevk edilip ödenmeyen</p>}
           icon={Wallet}
           tone="from-rose-500 to-orange-500"
-          delay={180}
         />
         <StatCard
           label="Sevk"
-          display={Math.round(dispatched).toLocaleString('tr-TR')}
+          target={data.dispatchedCount}
+          format={(value) => Math.round(value).toLocaleString('tr-TR')}
           hint={<p className="mt-1 text-xs text-slate-500">{data.paidCount} tahsil edildi</p>}
           icon={Truck}
           tone="from-violet-500 to-fuchsia-500"
-          delay={250}
         />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-5">
-        <section
-          className="animate-in fade-in slide-in-from-bottom-4 fill-mode-both rounded-2xl border border-slate-700/80 bg-slate-800/40 p-4 xl:col-span-3"
-          style={{ animationDelay: '280ms', animationDuration: '750ms' }}
-        >
-          <div className="mb-4 flex items-end justify-between">
-            <div>
-              <h2 className="text-sm font-medium text-white">14 günlük ciro</h2>
-              <p className="text-xs text-slate-500">Günlük teklif tutarı</p>
-            </div>
-          </div>
-          <div className="h-[280px]">
-            {ready ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="quoteFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#34d399" stopOpacity={0.45} />
-                      <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis
-                    tick={{ fill: '#64748b', fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={56}
-                    tickFormatter={(value) =>
-                      value >= 1000 ? `${Math.round(Number(value) / 1000)}k` : String(value)
-                    }
-                  />
-                  <Tooltip content={<ChartTip money />} />
-                  <Area
-                    type="monotone"
-                    dataKey="amount"
-                    stroke="#34d399"
-                    strokeWidth={2.5}
-                    fill="url(#quoteFill)"
-                    animationDuration={1100}
-                    animationEasing="ease-out"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full animate-pulse rounded-xl bg-slate-700/30" />
-            )}
-          </div>
-        </section>
+      <section className="rounded-2xl border border-slate-700/70 bg-slate-800/50 p-5 sm:p-6">
+        <div className="mb-5">
+          <h2 className="text-base font-medium text-white">14 günlük ciro</h2>
+          <p className="mt-0.5 text-sm text-slate-500">Her turun en düşük teklif tutarı, güne göre</p>
+        </div>
+        {empty ? (
+          <p className="py-16 text-center text-sm text-slate-500">Henüz teklif yok — grafik ilk kayıttan sonra dolar.</p>
+        ) : (
+          <RevenueChart series={data.series} />
+        )}
+      </section>
 
-        <section
-          className="animate-in fade-in slide-in-from-bottom-4 fill-mode-both rounded-2xl border border-slate-700/80 bg-slate-800/40 p-4 xl:col-span-2"
-          style={{ animationDelay: '360ms', animationDuration: '750ms' }}
-        >
-          <h2 className="text-sm font-medium text-white">Durum dağılımı</h2>
-          <p className="text-xs text-slate-500">Tekliflerin şu anki hali</p>
-          <div className="mt-2 h-[220px]">
-            {ready && data.statuses.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={data.statuses}
-                    dataKey="value"
-                    nameKey="label"
-                    innerRadius={58}
-                    outerRadius={86}
-                    paddingAngle={3}
-                    animationDuration={1000}
-                    animationEasing="ease-out"
-                  >
-                    {data.statuses.map((row) => (
-                      <Cell key={row.key} fill={row.color} stroke="transparent" />
-                    ))}
-                  </Pie>
-                  <Tooltip content={<ChartTip />} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                {empty ? 'Henüz teklif yok' : 'Yükleniyor…'}
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {data.statuses.map((row) => (
-              <span key={row.key} className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.color }} />
-                {row.label} {row.value}
-              </span>
-            ))}
-          </div>
-        </section>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section
-          className="animate-in fade-in slide-in-from-bottom-4 fill-mode-both rounded-2xl border border-slate-700/80 bg-slate-800/40 p-4"
-          style={{ animationDelay: '440ms', animationDuration: '750ms' }}
-        >
-          <h2 className="text-sm font-medium text-white">En yüksek hacim</h2>
-          <p className="mb-4 text-xs text-slate-500">Müşteriye göre teklif tutarı</p>
-          {data.topCustomers.length === 0 ? (
-            <p className="py-10 text-center text-sm text-slate-500">Müşteri verisi yok</p>
-          ) : ready ? (
-            <div className="h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={data.topCustomers}
-                  layout="vertical"
-                  margin={{ top: 4, right: 12, left: 8, bottom: 0 }}
-                >
-                  <CartesianGrid stroke="#334155" strokeDasharray="3 3" horizontal={false} />
-                  <XAxis
-                    type="number"
-                    tick={{ fill: '#64748b', fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(value) =>
-                      value >= 1000 ? `${Math.round(Number(value) / 1000)}k` : String(value)
-                    }
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={110}
-                    tick={{ fill: '#cbd5e1', fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip content={<ChartTip money />} />
-                  <Bar
-                    dataKey="amount"
-                    fill="#22d3ee"
-                    radius={[0, 8, 8, 0]}
-                    animationDuration={900}
-                    maxBarSize={22}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <section className="rounded-2xl border border-slate-700/70 bg-slate-800/50 p-5 sm:p-6">
+          <h2 className="text-base font-medium text-white">Durum</h2>
+          <p className="mt-0.5 text-sm text-slate-500">Tekliflerin şu anki hali</p>
+          {data.statuses.length === 0 ? (
+            <p className="py-12 text-center text-sm text-slate-500">Durum verisi yok</p>
           ) : (
-            <div className="h-[240px] animate-pulse rounded-xl bg-slate-700/30" />
+            <div className="mt-6 space-y-4">
+              <div className="flex h-3 overflow-hidden rounded-full bg-slate-900">
+                {data.statuses.map((row) => (
+                  <div
+                    key={row.key}
+                    className="h-full first:rounded-l-full last:rounded-r-full"
+                    style={{ width: `${(row.value / statusTotal) * 100}%`, backgroundColor: row.color }}
+                    title={`${row.label}: ${row.value}`}
+                  />
+                ))}
+              </div>
+              <div className="space-y-3">
+                {data.statuses.map((row) => {
+                  const pct = Math.round((row.value / statusTotal) * 100)
+                  return (
+                    <div key={row.key} className="flex items-center justify-between gap-3 text-sm">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.color }} />
+                        <span className="text-slate-200">{row.label}</span>
+                      </div>
+                      <p className="shrink-0 tabular-nums text-slate-400">
+                        {row.value} <span className="text-slate-600">· %{pct}</span>
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           )}
         </section>
 
-        <section
-          className="animate-in fade-in slide-in-from-bottom-4 fill-mode-both rounded-2xl border border-slate-700/80 bg-slate-800/40 p-4"
-          style={{ animationDelay: '520ms', animationDuration: '750ms' }}
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-medium text-white">Son teklifler</h2>
-              <p className="text-xs text-slate-500">Her turun en düşük teklifi</p>
+        <section className="rounded-2xl border border-slate-700/70 bg-slate-800/50 p-5 sm:p-6">
+          <h2 className="text-base font-medium text-white">En yüksek hacim</h2>
+          <p className="mt-0.5 text-sm text-slate-500">Müşteriye göre en düşük teklif tutarı</p>
+          {data.topCustomers.length === 0 ? (
+            <p className="py-12 text-center text-sm text-slate-500">Müşteri verisi yok</p>
+          ) : (
+            <div className="mt-6 space-y-4">
+              {data.topCustomers.map((row) => {
+                const width = Math.max(8, (row.amount / maxCustomer) * 100)
+                return (
+                  <div key={row.name}>
+                    <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                      <p className="truncate text-sm text-slate-200" title={row.name}>{row.name}</p>
+                      <p className="shrink-0 text-sm tabular-nums text-white">{formatMoney(row.amount)}</p>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-900">
+                      <div
+                        className="h-full rounded-full bg-cyan-400/80"
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <Link href="/quotes" className="text-xs text-emerald-400 hover:text-emerald-300">
-              Tümü
+          )}
+        </section>
+      </div>
+
+      <section className="rounded-2xl border border-slate-700/70 bg-slate-800/50 p-5 sm:p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-medium text-white">Son teklifler</h2>
+            <p className="mt-0.5 text-sm text-slate-500">Her turun en düşük teklifi</p>
+          </div>
+          <Link href="/quotes" className="text-sm text-emerald-400 hover:text-emerald-300">
+            Tümü
+          </Link>
+        </div>
+        {data.recent.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <p className="text-sm text-slate-300">Henüz teklif yok</p>
+            <p className="mt-1 text-xs text-slate-500">İlk teklifi oluşturunca özet dolar.</p>
+            <Link href="/quotes/new">
+              <Button className="mt-4 bg-gradient-to-r from-emerald-500 to-cyan-500">
+                <FilePlus className="mr-2 h-4 w-4" />
+                Teklif Oluştur
+              </Button>
             </Link>
           </div>
-          {data.recent.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <p className="text-sm text-slate-300">Henüz teklif yok</p>
-              <p className="mt-1 text-xs text-slate-500">İlk teklifi oluşturunca grafikler dolar.</p>
-              <Link href="/quotes/new">
-                <Button className="mt-4 bg-gradient-to-r from-emerald-500 to-cyan-500">
-                  <FilePlus className="mr-2 h-4 w-4" />
-                  Teklif Oluştur
-                </Button>
-              </Link>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-700/70">
-              {data.recent.map((quote) => (
-                <div key={quote.id} className="flex items-center justify-between gap-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-white">
-                      {quote.quoteNo || quote.id.slice(0, 8).toUpperCase()}
-                    </p>
-                    <p className="truncate text-xs text-slate-500">{quote.customer}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-right">
-                      <p className="text-sm font-medium tabular-nums text-slate-100">
-                        {formatMoney(quote.amount)}
-                      </p>
-                      <Badge className={`mt-1 font-normal ${STATUS_STYLE[quote.status]}`}>
-                        {STATUS_LABEL[quote.status]}
-                      </Badge>
-                    </div>
-                    <Link href={quoteSharePath(quote.shareToken)} target="_blank" rel="noreferrer">
-                      <Button
-                        type="button"
-                        size="icon-sm"
-                        variant="ghost"
-                        className="text-slate-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-                        title="Teklifi aç"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                  </div>
+        ) : (
+          <div className="divide-y divide-slate-700/60">
+            {data.recent.map((quote) => (
+              <div key={quote.id} className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-white">
+                    {quote.quoteNo || quote.id.slice(0, 8).toUpperCase()}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">{quote.customer}</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <div className="text-right">
+                    <p className="text-sm font-medium tabular-nums text-slate-100">
+                      {formatMoney(quote.amount)}
+                    </p>
+                    <Badge className={`mt-1 font-normal ${STATUS_STYLE[quote.status]}`}>
+                      {STATUS_LABEL[quote.status]}
+                    </Badge>
+                  </div>
+                  <Link href={`/quotes/${quote.id}/edit`}>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      className="text-slate-400 hover:bg-slate-700/60 hover:text-white"
+                      title="Revize et"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                  <Link href={quoteSharePath(quote.shareToken)} target="_blank" rel="noreferrer">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      className="text-slate-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                      title="Teklifi aç"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <QuickLink href="/products" icon={Package} label="Ürünler" value={`${data.productCount} kayıt`} />
@@ -466,7 +444,7 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="group flex items-center justify-between rounded-2xl border border-slate-700/80 bg-slate-800/30 px-4 py-3 transition hover:border-emerald-500/40 hover:bg-slate-800/60"
+      className="group flex items-center justify-between rounded-2xl border border-slate-700/70 bg-slate-800/40 px-4 py-3.5 transition hover:border-emerald-500/40 hover:bg-slate-800/70"
     >
       <div className="flex items-center gap-3">
         <div className="rounded-lg bg-slate-700/70 p-2 text-slate-300 group-hover:text-emerald-300">
