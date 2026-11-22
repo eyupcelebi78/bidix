@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateTemplate, QuoteData } from '@/lib/pdf-templates'
 import { quotePdfFileName } from '@/lib/pdf-filename'
+import { embedRemoteImage } from '@/lib/embed-remote-image'
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,9 +22,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Oturum bulunamadı' }, { status: 401 })
     }
 
+    const origin = request.nextUrl.origin
+    const [logoUrl, stampUrl, signatureUrl] = await Promise.all([
+      embedRemoteImage(quoteData.company?.logo_url, origin),
+      embedRemoteImage(quoteData.signature?.stamp_image_url, origin),
+      embedRemoteImage(quoteData.signature?.signature_image_url, origin),
+    ])
+    const embeddedQuoteData: QuoteData = {
+      ...quoteData,
+      company: {
+        ...quoteData.company,
+        logo_url: logoUrl,
+      },
+      signature: quoteData.signature
+        ? {
+            ...quoteData.signature,
+            stamp_image_url: stampUrl,
+            signature_image_url: signatureUrl,
+          }
+        : null,
+    }
+
     // Generate HTML
     const templateKey = body.templateKey || 'form'
-    const html = generateTemplate(templateKey, quoteData, request.nextUrl.origin)
+    const html = generateTemplate(templateKey, embeddedQuoteData, origin)
 
     // Generate PDF using Playwright
     const { chromium } = await import('playwright')
@@ -32,7 +54,19 @@ export async function POST(request: NextRequest) {
     })
     
     const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: 'networkidle' })
+    await page.setContent(html, { waitUntil: 'load' })
+    await page.evaluate(async () => {
+      const images = Array.from(document.images)
+      await Promise.all(
+        images.map((img) => {
+          if (img.complete) return Promise.resolve()
+          return new Promise<void>((resolve) => {
+            img.addEventListener('load', () => resolve(), { once: true })
+            img.addEventListener('error', () => resolve(), { once: true })
+          })
+        }),
+      )
+    })
     
     const pdfBuffer = await page.pdf({
       format: 'A4',

@@ -38,6 +38,7 @@ interface QuoteItem {
   product_id: string
   product: Product
   quantity: number
+  unitPrice: number
 }
 
 interface LastPrice {
@@ -63,6 +64,7 @@ export default function NewQuotePage() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [items, setItems] = useState<QuoteItem[]>([])
   const [selectedProductId, setSelectedProductId] = useState('')
+  const [selectedUnitPrice, setSelectedUnitPrice] = useState('')
   const [lastPrices, setLastPrices] = useState<Record<string, LastPrice>>({})
   const [loadingLastPrices, setLoadingLastPrices] = useState(false)
 
@@ -176,6 +178,21 @@ export default function NewQuotePage() {
     return new Date(iso).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })
   }
 
+  const parsePrice = (value: string) => {
+    const n = parseFloat(value.replace(',', '.'))
+    return Number.isFinite(n) ? n : NaN
+  }
+
+  const selectProduct = (productId: string) => {
+    setSelectedProductId(productId)
+    const product = products.find((p) => p.id === productId)
+    if (!product) {
+      setSelectedUnitPrice('')
+      return
+    }
+    setSelectedUnitPrice(String(product.unit_price))
+  }
+
   const addItem = () => {
     if (!selectedProductId) {
       toast.error('Lütfen bir ürün seçin')
@@ -191,12 +208,17 @@ export default function NewQuotePage() {
       return
     }
 
+    const typed = parsePrice(selectedUnitPrice)
+    const unitPrice = Number.isFinite(typed) ? Math.max(0, typed) : product.unit_price
+
     setItems([...items, {
       product_id: product.id,
       product,
       quantity: 1,
+      unitPrice,
     }])
     setSelectedProductId('')
+    setSelectedUnitPrice('')
   }
 
   const addCreatedProduct = (product: Product) => {
@@ -206,15 +228,24 @@ export default function NewQuotePage() {
     })
     setItems((prev) => {
       if (prev.some((item) => item.product_id === product.id)) return prev
-      return [...prev, { product_id: product.id, product, quantity: 1 }]
+      return [...prev, { product_id: product.id, product, quantity: 1, unitPrice: product.unit_price }]
     })
     setSelectedProductId('')
+    setSelectedUnitPrice('')
   }
 
   const updateQuantity = (productId: string, quantity: number) => {
     setItems(items.map(item =>
       item.product_id === productId
         ? { ...item, quantity: Math.max(0.01, quantity) }
+        : item
+    ))
+  }
+
+  const updateUnitPrice = (productId: string, unitPrice: number) => {
+    setItems(items.map(item =>
+      item.product_id === productId
+        ? { ...item, unitPrice: Math.max(0, unitPrice) }
         : item
     ))
   }
@@ -228,7 +259,7 @@ export default function NewQuotePage() {
     let vatTotal = 0
 
     items.forEach(item => {
-      const effectivePrice = item.product.unit_price * multiplier
+      const effectivePrice = item.unitPrice * multiplier
       const lineSubtotal = effectivePrice * item.quantity
       const lineVat = lineSubtotal * (item.product.vat_rate / 100)
       subtotal += lineSubtotal
@@ -354,7 +385,7 @@ export default function NewQuotePage() {
     if (quoteError) throw quoteError
 
     const quoteItems = items.map((item, index) => {
-      const effectivePrice = item.product.unit_price * company.multiplier
+      const effectivePrice = item.unitPrice * company.multiplier
       const lineSubtotal = effectivePrice * item.quantity
       const lineVat = lineSubtotal * (item.product.vat_rate / 100)
       const lineTotal = lineSubtotal + lineVat
@@ -676,9 +707,9 @@ export default function NewQuotePage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Add Product */}
-              <div className="flex gap-2">
-                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                  <SelectTrigger className="flex-1 border-slate-600 bg-slate-700 text-white">
+              <div className="flex flex-wrap gap-2">
+                <Select value={selectedProductId} onValueChange={selectProduct}>
+                  <SelectTrigger className="min-w-[220px] flex-1 border-slate-600 bg-slate-700 text-white">
                     <SelectValue placeholder="Ürün seçin..." />
                   </SelectTrigger>
                   <SelectContent className="border-slate-600 bg-slate-700 max-h-64">
@@ -698,6 +729,17 @@ export default function NewQuotePage() {
                     })}
                   </SelectContent>
                 </Select>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={selectedUnitPrice}
+                  onChange={(e) => setSelectedUnitPrice(e.target.value)}
+                  placeholder="Birim fiyat"
+                  disabled={!selectedProductId}
+                  className="w-36 border-slate-600 bg-slate-700 text-white placeholder:text-slate-500"
+                  aria-label="Teklif birim fiyatı"
+                />
                 <Button onClick={addItem} className="bg-gradient-to-r from-emerald-500 to-cyan-500">
                   <Plus className="h-4 w-4" />
                 </Button>
@@ -722,13 +764,19 @@ export default function NewQuotePage() {
                     <TableBody>
                       {items.map((item) => {
                         const last = getLastPrice(item.product)
-                        const delta = last ? item.product.unit_price - last.unitPrice : 0
+                        const delta = last ? item.unitPrice - last.unitPrice : 0
+                        const catalogDelta = item.unitPrice - item.product.unit_price
                         return (
                         <TableRow key={item.product_id} className="border-slate-700">
                           <TableCell className="text-white">
                             {item.product.name}
                             {item.product.brand && (
                               <span className="text-slate-400 text-sm ml-1">({item.product.brand})</span>
+                            )}
+                            {Math.abs(catalogDelta) >= 0.005 && (
+                              <div className="text-xs text-slate-500">
+                                listede ₺{formatMoney(item.product.unit_price)}
+                              </div>
                             )}
                           </TableCell>
                           <TableCell>
@@ -742,12 +790,25 @@ export default function NewQuotePage() {
                             />
                           </TableCell>
                           <TableCell className="text-slate-300">{item.product.unit}</TableCell>
-                          <TableCell className="text-right text-slate-300">
-                            ₺{formatMoney(item.product.unit_price)}
+                          <TableCell className="text-right">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.unitPrice}
+                              onChange={(e) => updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)}
+                              className="ml-auto w-28 border-slate-600 bg-slate-700 text-right text-white"
+                              aria-label={`${item.product.name} birim fiyat`}
+                            />
                           </TableCell>
                           <TableCell className="text-right">
                             {last ? (
-                              <div className="text-xs">
+                              <button
+                                type="button"
+                                onClick={() => updateUnitPrice(item.product_id, last.unitPrice)}
+                                className="text-xs hover:opacity-80"
+                                title="Bu fiyatı kullan"
+                              >
                                 <div className="flex items-center justify-end gap-1 text-amber-300">
                                   <History className="h-3 w-3" />
                                   ₺{formatMoney(last.unitPrice)}
@@ -761,13 +822,13 @@ export default function NewQuotePage() {
                                     </span>
                                   )}
                                 </div>
-                              </div>
+                              </button>
                             ) : (
                               <span className="text-xs text-slate-600">—</span>
                             )}
                           </TableCell>
                           <TableCell className="text-right text-white font-medium">
-                            ₺{formatMoney(item.product.unit_price * item.quantity)}
+                            ₺{formatMoney(item.unitPrice * item.quantity)}
                           </TableCell>
                           <TableCell>
                             <Button

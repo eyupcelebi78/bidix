@@ -90,6 +90,7 @@ export default function EditQuotePage() {
   const [lines, setLines] = useState<EditLine[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [selectedProductId, setSelectedProductId] = useState('')
+  const [selectedUnitPrice, setSelectedUnitPrice] = useState('')
   const [isLowest, setIsLowest] = useState(true)
   const [siblings, setSiblings] = useState<SiblingQuote[]>([])
   const [pricePrompt, setPricePrompt] = useState<Array<{
@@ -166,6 +167,21 @@ export default function EditQuotePage() {
     return quoteHeaderTotals(priced)
   }, [lines])
 
+  const parsePrice = (value: string) => {
+    const n = parseFloat(value.replace(',', '.'))
+    return Number.isFinite(n) ? n : NaN
+  }
+
+  const selectProduct = (productId: string) => {
+    setSelectedProductId(productId)
+    const product = products.find((row) => row.id === productId)
+    if (!product) {
+      setSelectedUnitPrice('')
+      return
+    }
+    setSelectedUnitPrice(String(product.unit_price * multiplier))
+  }
+
   const addProduct = () => {
     const product = products.find((row) => row.id === selectedProductId)
     if (!product || !isLowest) return
@@ -173,6 +189,8 @@ export default function EditQuotePage() {
       toast.error('Bu ürün zaten teklifte')
       return
     }
+    const typed = parsePrice(selectedUnitPrice)
+    const unitPrice = Number.isFinite(typed) ? Math.max(0, typed) : product.unit_price * multiplier
     setLines((prev) => [
       ...prev,
       {
@@ -182,12 +200,13 @@ export default function EditQuotePage() {
         product_brand: product.brand,
         product_unit: product.unit,
         quantity: 1,
-        unit_price_effective: product.unit_price * multiplier,
+        unit_price_effective: unitPrice,
         vat_rate: product.vat_rate,
         catalog_price: product.unit_price,
       },
     ])
     setSelectedProductId('')
+    setSelectedUnitPrice('')
   }
 
   const addCreatedProduct = (product: Product) => {
@@ -214,6 +233,7 @@ export default function EditQuotePage() {
       ]
     })
     setSelectedProductId('')
+    setSelectedUnitPrice('')
   }
 
   const updateLine = (id: string, patch: Partial<EditLine>) => {
@@ -465,9 +485,9 @@ export default function EditQuotePage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {isLowest && (
-            <div className="flex gap-2">
-              <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                <SelectTrigger className="flex-1 border-slate-600 bg-slate-700 text-white">
+            <div className="flex flex-wrap gap-2">
+              <Select value={selectedProductId} onValueChange={selectProduct}>
+                <SelectTrigger className="min-w-[220px] flex-1 border-slate-600 bg-slate-700 text-white">
                   <SelectValue placeholder="Ürün ekle..." />
                 </SelectTrigger>
                 <SelectContent className="max-h-64 border-slate-600 bg-slate-700">
@@ -483,6 +503,17 @@ export default function EditQuotePage() {
                   ))}
                 </SelectContent>
               </Select>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={selectedUnitPrice}
+                onChange={(e) => setSelectedUnitPrice(e.target.value)}
+                placeholder="Birim fiyat"
+                disabled={!selectedProductId}
+                className="w-36 border-slate-600 bg-slate-700 text-white placeholder:text-slate-500"
+                aria-label="Teklif birim fiyatı"
+              />
               <Button onClick={addProduct} className="bg-gradient-to-r from-emerald-500 to-cyan-500">
                 <Plus className="h-4 w-4" />
               </Button>

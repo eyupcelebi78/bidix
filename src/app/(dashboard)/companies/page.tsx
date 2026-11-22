@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Tables } from '@/lib/database.types'
 import { Button } from '@/components/ui/button'
@@ -26,7 +26,9 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Plus, Pencil, Trash2, Building2, Loader2, Upload, Lock, Check } from 'lucide-react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { BUILTIN_TEMPLATES, BuiltinTemplate, getTemplateName } from '@/lib/templates'
+import { StampImage } from '@/components/stamp-image'
 
 type Company = Tables<'companies'>
 type SignatureProfile = Tables<'signature_profiles'>
@@ -63,7 +65,7 @@ export default function CompaniesPage() {
   const [multiplier, setMultiplier] = useState('1.00')
   const [templateKey, setTemplateKey] = useState('form')
 
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const handleSelectTemplate = (t: BuiltinTemplate) => {
     if (t.premium) {
@@ -343,9 +345,15 @@ export default function CompaniesPage() {
                   <p>🏛️ {company.tax_office} / {company.tax_no}</p>
                 )}
                 {company.signature_profile_id && (
-                  <p className="flex items-center gap-1 text-emerald-400">
-                    Kaşe atanmış
-                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <StampImage
+                      src={signatureProfiles.find((sp) => sp.id === company.signature_profile_id)?.stamp_image_url}
+                      alt="Kaşe"
+                      className="h-12 w-auto max-w-[96px] object-contain bg-white rounded p-1"
+                      frameClassName="h-12 w-16"
+                    />
+                    <p className="text-emerald-400">Kaşe atanmış</p>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -471,54 +479,72 @@ export default function CompaniesPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Fiyat Çarpanı</Label>
-                  <Select value={multiplier} onValueChange={setMultiplier}>
-                    <SelectTrigger className="border-slate-600 bg-slate-700 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-72 border-slate-600 bg-slate-700">
-                      {(MULTIPLIERS.some((m) => m.value === multiplier)
-                        ? MULTIPLIERS
-                        : [
-                            {
-                              value: multiplier,
-                              label: Number(multiplier) === 1
-                                ? `Normal (x${Number(multiplier).toFixed(2)})`
-                                : `+%${Math.round((Number(multiplier) - 1) * 100)} (x${Number(multiplier).toFixed(2)})`,
-                            },
-                            ...MULTIPLIERS,
-                          ]
-                      ).map((m) => (
-                        <SelectItem key={m.value} value={m.value} className="text-white hover:bg-slate-600">
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Kaşe *</Label>
-                  {signatureProfiles.length === 0 ? (
-                    <p className="text-sm text-amber-400">
-                      Önce Kaşe sayfasından bir kaşe ekleyin. Firma kaydı için kaşe zorunludur.
-                    </p>
-                  ) : (
-                    <Select value={signatureProfileId} onValueChange={setSignatureProfileId} required>
-                      <SelectTrigger className="border-slate-600 bg-slate-700 text-white">
-                        <SelectValue placeholder="Kaşe seçin" />
-                      </SelectTrigger>
-                      <SelectContent className="border-slate-600 bg-slate-700">
-                        {signatureProfiles.map((sp) => (
-                          <SelectItem key={sp.id} value={sp.id} className="text-white hover:bg-slate-600">
-                            {companies.find((c) => c.signature_profile_id === sp.id)?.title || 'Kaşe'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
+              <div className="space-y-2">
+                <Label>Fiyat Çarpanı</Label>
+                <Select value={multiplier} onValueChange={setMultiplier}>
+                  <SelectTrigger className="border-slate-600 bg-slate-700 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 border-slate-600 bg-slate-700">
+                    {(MULTIPLIERS.some((m) => m.value === multiplier)
+                      ? MULTIPLIERS
+                      : [
+                          {
+                            value: multiplier,
+                            label: Number(multiplier) === 1
+                              ? `Normal (x${Number(multiplier).toFixed(2)})`
+                              : `+%${Math.round((Number(multiplier) - 1) * 100)} (x${Number(multiplier).toFixed(2)})`,
+                          },
+                          ...MULTIPLIERS,
+                        ]
+                    ).map((m) => (
+                      <SelectItem key={m.value} value={m.value} className="text-white hover:bg-slate-600">
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Kaşe *</Label>
+                {signatureProfiles.length === 0 ? (
+                  <p className="text-sm text-amber-400">
+                    Önce <Link href="/signatures" className="underline">Kaşe</Link> sayfasından PNG veya JPG yükleyin. Firma kaydı için kaşe zorunludur.
+                  </p>
+                ) : (
+                  <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+                    {signatureProfiles.map((sp) => {
+                      const selected = signatureProfileId === sp.id
+                      const stampLabel =
+                        (sp.signer_name && sp.signer_name !== 'Kaşe' && sp.signer_name) ||
+                        companies.find((c) => c.signature_profile_id === sp.id)?.title ||
+                        'Kaşe'
+                      return (
+                        <button
+                          key={sp.id}
+                          type="button"
+                          onClick={() => setSignatureProfileId(sp.id)}
+                          className={`rounded-lg border p-2 text-left transition-colors ${
+                            selected
+                              ? 'border-emerald-500 bg-emerald-500/15'
+                              : 'border-slate-600 bg-slate-700/40 hover:border-slate-500'
+                          }`}
+                        >
+                          <StampImage
+                            src={sp.stamp_image_url}
+                            alt={stampLabel}
+                            className="mx-auto h-16 w-auto max-w-full object-contain bg-white rounded p-1"
+                            frameClassName="h-16"
+                          />
+                          <span className="mt-1 block truncate text-xs text-slate-200" title={stampLabel}>
+                            {stampLabel}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Teklif Şablonu */}
